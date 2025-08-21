@@ -62,3 +62,18 @@ type SubtaskData struct {
 	Position    int    `json:"position"`
 	Finished    int    `json:"finished"`
 }
+
+type AddCommentRequest struct {
+	Text string `json:"text"`
+}
+
+type AddCommentResponse struct {
+	Data AddCommentData `json:"data"`
+}
+
+type AddCommentData struct {
+	CommentID   int    `json:"comment_id"`
+	Text        string `json:"text"`
+	AuthorName  string `json:"author_name"`
+	CreatedDate string `json:"created_date"`
+}

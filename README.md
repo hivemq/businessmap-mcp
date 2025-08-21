@@ -4,12 +4,15 @@
 ![License](https://img.shields.io/badge/License-MIT-green.svg)
 ![MCP Protocol](https://img.shields.io/badge/MCP-Compatible-orange.svg)
 
-A Go-based Model Context Protocol (MCP) server that provides comprehensive access to Businessmap (formerly Kanbanize) card information including title, description, subtasks, and comments.
+A Go-based Model Context Protocol (MCP) server that provides comprehensive access to Businessmap (formerly Kanbanize) cards including reading card information and adding comments.
 
 ## Features
 
-- **🎯 Single MCP Tool**: `read_card` - Comprehensive card information retrieval
+- **🎯 Two MCP Tools**: 
+  - `read_card` - Comprehensive card information retrieval
+  - `add_card_comment` - Add comments to existing cards
 - **📊 Structured Data**: Returns clean JSON with title, description, subtasks, and comments
+- **✍️ Card Interaction**: Add comments to cards directly through the API
 - **🔐 Secure Authentication**: API key and base URL configuration via environment variables
 - **🔗 Direct API Integration**: Uses official Businessmap API v2 endpoints
 - **⚡ Lightweight**: Minimal dependencies and fast response times
@@ -135,26 +138,48 @@ Then update the Claude Code config to use the working directory:
 
 After updating the configuration, restart Claude Code to load the new MCP server.
 
-### 5. Using the Tool
+### 5. Using the Tools
 
-Once integrated, you can use the `read_card` tool in Claude Code:
+Once integrated, you can use the tools in Claude Code:
 
+**Reading card information**:
 ```
 Please read the details of Businessmap card 12345
 ```
 
-Claude will automatically use the MCP server to fetch comprehensive card information including title, description, subtasks, and comments.
+**Reading card from URL** (supports various URL formats):
+```
+Please read the details from https://yourcompany.kanbanize.com/ctrl_board/123/cards/12345
+Please read the details from https://yourcompany.kanbanize.com/ctrl_board/123/cards/12345/
+Please read the details from https://yourcompany.kanbanize.com/ctrl_board/123/cards/12345/details/
+Please read the details from https://yourcompany.kanbanize.com/ctrl_board/123/cards/12345/comments/
+```
+
+**Adding comments to cards**:
+```
+Please add a comment "Work completed successfully" to Businessmap card 12345
+```
+
+**Adding comments using URL** (supports various URL formats):
+```
+Please add a comment "Task completed" to https://yourcompany.kanbanize.com/ctrl_board/123/cards/12345
+Please add a comment "Task completed" to https://yourcompany.kanbanize.com/ctrl_board/123/cards/12345/
+Please add a comment "Task completed" to https://yourcompany.kanbanize.com/ctrl_board/123/cards/12345/details/
+Please add a comment "Task completed" to https://yourcompany.kanbanize.com/ctrl_board/123/cards/12345/comments/
+```
+
+Claude will automatically use the MCP server to fetch comprehensive card information or add comments as requested.
 
 ## Usage
 
-The MCP server communicates via stdin/stdout using the JSON-RPC protocol. It provides one tool:
+The MCP server communicates via stdin/stdout using the JSON-RPC protocol. It provides two tools:
 
 ### `read_card`
 
 **Description**: Read comprehensive card information including title, description, subtasks, and comments
 
 **Parameters**:
-- `card_id` (string, required): The ID of the Kanbanize card to read
+- `card_id` (string, required): The ID of the Kanbanize card to read or full card URL
 
 **Example Response**: 
 ```json
@@ -180,6 +205,19 @@ The MCP server communicates via stdin/stdout using the JSON-RPC protocol. It pro
 }
 ```
 
+### `add_card_comment`
+
+**Description**: Add a comment to a card
+
+**Parameters**:
+- `card_id` (string, required): The ID of the Kanbanize card to add comment to or full card URL  
+- `comment_text` (string, required): The text of the comment to add
+
+**Example Response**: 
+```json
+"Comment added successfully"
+```
+
 ## Testing
 
 ### Prerequisites for Testing
@@ -202,26 +240,54 @@ The MCP server communicates via stdin/stdout using the JSON-RPC protocol. It pro
    # Build the server
    go build -o businessmap-mcp
    
-   # Test with a card ID (replace 12345 with your actual card ID)
+   # Test read_card only (replace 12345 with your actual card ID)
    ./tests/test_mcp.sh 12345
+   
+   # Test with full URL (various formats supported)
+   ./tests/test_mcp.sh "https://yourcompany.kanbanize.com/ctrl_board/123/cards/12345"
+   ./tests/test_mcp.sh "https://yourcompany.kanbanize.com/ctrl_board/123/cards/12345/"
+   ./tests/test_mcp.sh "https://yourcompany.kanbanize.com/ctrl_board/123/cards/12345/details/"
+   
+   # Test both read_card and add_card_comment tools
+   ./tests/test_mcp.sh 12345 "Test comment from MCP server"
    ```
 
 ### Testing Options
 
 #### Option 1: Shell Script (Recommended)
 ```bash
+# Test read_card only with card ID
 ./tests/test_mcp.sh YOUR_CARD_ID
+
+# Test read_card with full URL (various formats supported)
+./tests/test_mcp.sh "https://yourcompany.kanbanize.com/ctrl_board/123/cards/YOUR_CARD_ID"
+./tests/test_mcp.sh "https://yourcompany.kanbanize.com/ctrl_board/123/cards/YOUR_CARD_ID/"
+./tests/test_mcp.sh "https://yourcompany.kanbanize.com/ctrl_board/123/cards/YOUR_CARD_ID/details/"
+./tests/test_mcp.sh "https://yourcompany.kanbanize.com/ctrl_board/123/cards/YOUR_CARD_ID/comments/"
+
+# Test both tools
+./tests/test_mcp.sh YOUR_CARD_ID "Your test comment"
 ```
 
 #### Option 2: Interactive Python Script
 ```bash
+# Test read_card only with card ID
 python3 tests/test_interactive.py YOUR_CARD_ID
+
+# Test read_card with full URL  
+python3 tests/test_interactive.py "https://yourcompany.kanbanize.com/ctrl_board/123/cards/YOUR_CARD_ID/"
+
+# Test both tools
+python3 tests/test_interactive.py YOUR_CARD_ID "Your test comment"
 ```
 
 #### Option 3: Manual JSON-RPC Testing
 ```bash
-# Replace YOUR_CARD_ID in the test file
+# Replace YOUR_CARD_ID in the test file (tests both tools)
 sed 's/REPLACE_WITH_CARD_ID/YOUR_CARD_ID/g' tests/test_messages.jsonl | ./businessmap-mcp
+
+# Or test with URL (escape slashes properly)
+sed 's|REPLACE_WITH_CARD_ID|https://yourcompany.kanbanize.com/ctrl_board/123/cards/YOUR_CARD_ID/|g' tests/test_messages.jsonl | ./businessmap-mcp
 ```
 
 ### Expected Output
@@ -256,9 +322,10 @@ The server uses the official Businessmap API v2 endpoints:
 
 **Endpoints**:
 ```bash
-GET {KANBANIZE_BASE_URL}/api/v2/cards/{card_id}              # Card details
-GET {KANBANIZE_BASE_URL}/api/v2/cards/{card_id}/comments     # Comments
-GET {KANBANIZE_BASE_URL}/api/v2/cards/{card_id}/subtasks     # Subtasks
+GET  {KANBANIZE_BASE_URL}/api/v2/cards/{card_id}              # Card details
+GET  {KANBANIZE_BASE_URL}/api/v2/cards/{card_id}/comments     # Comments
+GET  {KANBANIZE_BASE_URL}/api/v2/cards/{card_id}/subtasks     # Subtasks
+POST {KANBANIZE_BASE_URL}/api/v2/cards/{card_id}/comments     # Add comment
 ```
 
 **Authentication**:

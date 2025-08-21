@@ -1,10 +1,12 @@
 package kanbanize
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -26,9 +28,37 @@ func NewClient(baseURL, apiKey string) *Client {
 	}
 }
 
-func (c *Client) ReadCard(cardID string) (*ReadCardResponse, error) {
-	if cardID == "" {
-		return nil, fmt.Errorf("card ID cannot be empty")
+// extractCardID extracts card ID from either a card ID or a full BusinessMap URL
+func (c *Client) extractCardID(input string) (string, error) {
+	if input == "" {
+		return "", fmt.Errorf("card ID or URL cannot be empty")
+	}
+
+	// If input doesn't contain "http" or "/", assume it's already a card ID
+	if !strings.Contains(input, "http") && !strings.Contains(input, "/") {
+		return input, nil
+	}
+
+	// Pattern to match BusinessMap URLs with various endings:
+	// .../ctrl_board/<board_id>/cards/<card_id>
+	// .../ctrl_board/<board_id>/cards/<card_id>/
+	// .../ctrl_board/<board_id>/cards/<card_id>/any_string
+	// .../ctrl_board/<board_id>/cards/<card_id>/any_string/
+	// Also matches variations like .../crl_board/
+	pattern := regexp.MustCompile(`/c(?:tr|r)l_board/\d+/cards/(\d+)(?:/.*)?`)
+	matches := pattern.FindStringSubmatch(input)
+	
+	if len(matches) < 2 {
+		return "", fmt.Errorf("invalid BusinessMap URL format: %s", input)
+	}
+
+	return matches[1], nil
+}
+
+func (c *Client) ReadCard(cardIDOrURL string) (*ReadCardResponse, error) {
+	cardID, err := c.extractCardID(cardIDOrURL)
+	if err != nil {
+		return nil, err
 	}
 
 	cardData, err := c.getCard(cardID)
@@ -52,6 +82,31 @@ func (c *Client) ReadCard(cardID string) (*ReadCardResponse, error) {
 		Comments:    comments,
 		Subtasks:    subtasks,
 	}, nil
+}
+
+func (c *Client) AddCardComment(cardIDOrURL, text string) error {
+	cardID, err := c.extractCardID(cardIDOrURL)
+	if err != nil {
+		return err
+	}
+	if text == "" {
+		return fmt.Errorf("comment text cannot be empty")
+	}
+
+	url := fmt.Sprintf("%s/api/v2/cards/%s/comments", c.baseURL, cardID)
+	request := AddCommentRequest{Text: text}
+
+	body, err := c.makeAPIRequestWithBody("POST", url, request)
+	if err != nil {
+		return fmt.Errorf("failed to add comment: %w", err)
+	}
+
+	var response AddCommentResponse
+	if err := json.Unmarshal(body, &response); err != nil {
+		return fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	return nil
 }
 
 func (c *Client) getCard(cardID string) (*CardData, error) {
@@ -124,7 +179,20 @@ func (c *Client) getCardSubtasks(cardID string) ([]Subtask, error) {
 }
 
 func (c *Client) makeAPIRequest(url string) ([]byte, error) {
-	req, err := http.NewRequest("GET", url, nil)
+	return c.makeAPIRequestWithBody("GET", url, nil)
+}
+
+func (c *Client) makeAPIRequestWithBody(method, url string, body interface{}) ([]byte, error) {
+	var requestBody io.Reader
+	if body != nil {
+		jsonBody, err := json.Marshal(body)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal request body: %w", err)
+		}
+		requestBody = bytes.NewBuffer(jsonBody)
+	}
+
+	req, err := http.NewRequest(method, url, requestBody)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -138,18 +206,18 @@ func (c *Client) makeAPIRequest(url string) ([]byte, error) {
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
+	responseBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
 
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 		var apiErr APIError
-		if err := json.Unmarshal(body, &apiErr); err == nil {
+		if err := json.Unmarshal(responseBody, &apiErr); err == nil {
 			return nil, fmt.Errorf("API error (status %d): %s", resp.StatusCode, apiErr.Message)
 		}
-		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(responseBody))
 	}
 
-	return body, nil
+	return responseBody, nil
 }
