@@ -102,3 +102,6 @@ test-output/
 
 # Coverage reports
 coverage/
+
+# Claude Code settings
+.claude/settings.local.json

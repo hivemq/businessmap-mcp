@@ -28,7 +28,7 @@ func main() {
 		mcp.WithDescription("Read comprehensive card information including title, description, subtasks, and comments"),
 		mcp.WithString("card_id",
 			mcp.Required(),
-			mcp.Description("The ID of the Kanbanize card to read"),
+			mcp.Description("The ID of the Kanbanize card to read or full card URL"),
 		),
 	)
 
@@ -49,6 +49,37 @@ func main() {
 		}
 
 		return mcp.NewToolResultText(string(cardJSON)), nil
+	})
+
+	addCommentTool := mcp.NewTool("add_card_comment",
+		mcp.WithDescription("Add a comment to a card"),
+		mcp.WithString("card_id",
+			mcp.Required(),
+			mcp.Description("The ID of the Kanbanize card to add comment to or full card URL"),
+		),
+		mcp.WithString("comment_text",
+			mcp.Required(),
+			mcp.Description("The text of the comment to add"),
+		),
+	)
+
+	mcpServer.AddTool(addCommentTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		cardID := mcp.ParseString(request, "card_id", "")
+		if cardID == "" {
+			return mcp.NewToolResultError("card_id parameter is required"), nil
+		}
+
+		commentText := mcp.ParseString(request, "comment_text", "")
+		if commentText == "" {
+			return mcp.NewToolResultError("comment_text parameter is required"), nil
+		}
+
+		err := client.AddCardComment(cardID, commentText)
+		if err != nil {
+			return mcp.NewToolResultError("Failed to add comment: "+err.Error()), nil
+		}
+
+		return mcp.NewToolResultText("Comment added successfully"), nil
 	})
 
 	if err := server.ServeStdio(mcpServer); err != nil {
