@@ -1,4 +1,4 @@
-module github.com/zbigniewzabost-hivemq/businessmap-mcp
+module github.com/hivemq/businessmap-mcp
 
 go 1.25.0
 

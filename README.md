@@ -68,7 +68,7 @@ This MCP server is designed to work seamlessly with Claude Code. Follow these st
 
 ```bash
 # Clone the repository
-git clone https://github.com/zbigniewzabost-hivemq/businessmap-mcp.git
+git clone https://github.com/hivemq/businessmap-mcp.git
 cd businessmap-mcp
 
 # Install dependencies
@@ -395,6 +395,6 @@ This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENS
 
 ## Support
 
-- **Issues**: Report bugs or request features via [GitHub Issues](https://github.com/zbigniewzabost-hivemq/businessmap-mcp/issues)
+- **Issues**: Report bugs or request features via [GitHub Issues](https://github.com/hivemq/businessmap-mcp/issues)
 - **Documentation**: Full API documentation available in this README
 - **Community**: Contributions and feedback welcome!

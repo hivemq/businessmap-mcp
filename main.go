@@ -24,8 +24,8 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
-	"github.com/zbigniewzabost-hivemq/businessmap-mcp/internal/config"
-	"github.com/zbigniewzabost-hivemq/businessmap-mcp/internal/kanbanize"
+	"github.com/hivemq/businessmap-mcp/internal/config"
+	"github.com/hivemq/businessmap-mcp/internal/kanbanize"
 )
 
 func main() {
