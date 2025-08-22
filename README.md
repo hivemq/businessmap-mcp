@@ -1,7 +1,7 @@
 # Businessmap MCP Server
 
 ![Go Version](https://img.shields.io/badge/Go-1.25+-blue.svg)
-![License](https://img.shields.io/badge/License-MIT-green.svg)
+![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)
 ![MCP Protocol](https://img.shields.io/badge/MCP-Compatible-orange.svg)
 
 A Go-based Model Context Protocol (MCP) server that provides comprehensive access to Businessmap (formerly Kanbanize) cards including reading card information and adding comments.
@@ -338,7 +338,7 @@ apikey: {KANBANIZE_API_KEY}
 ```
 businessmap-mcp/
 ├── README.md                 # This documentation
-├── LICENSE                   # MIT license
+├── LICENSE                   # Apache License 2.0
 ├── CONTRIBUTING.md           # Contribution guidelines
 ├── main.go                   # MCP server entry point
 ├── go.mod                    # Go module definition
@@ -391,7 +391,7 @@ Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) for gu
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
 
 ## Support
 
