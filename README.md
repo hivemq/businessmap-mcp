@@ -82,7 +82,7 @@ go build -o businessmap-mcp
 
 Add the MCP server to your Claude Code configuration. Create or edit your Claude Code configuration file:
 
-**For Claude Code CLI** (`~/.claude/mcp_servers.json`):
+**For Claude Code CLI** (`~/.claude/.mcp.json`):
 ```json
 {
   "mcpServers": {
