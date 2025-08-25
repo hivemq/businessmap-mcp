@@ -19,7 +19,10 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"flag"
+	"fmt"
 	"log"
+	"os"
 
 	"github.com/joho/godotenv"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -28,7 +31,18 @@ import (
 	"github.com/hivemq/businessmap-mcp/internal/kanbanize"
 )
 
+// Version can be set at build time via ldflags
+var version = "dev"
+
 func main() {
+	var showVersion = flag.Bool("version", false, "show version and exit")
+	flag.Parse()
+
+	if *showVersion {
+		fmt.Printf("businessmap-mcp version %s\n", version)
+		os.Exit(0)
+	}
+
 	_ = godotenv.Load()
 
 	cfg, err := config.Load()
@@ -38,7 +52,7 @@ func main() {
 
 	client := kanbanize.NewClient(cfg.KanbanizeBaseURL, cfg.KanbanizeAPIKey)
 
-	mcpServer := server.NewMCPServer("kanbanize-mcp-server", "1.0.0")
+	mcpServer := server.NewMCPServer("kanbanize-mcp-server", version)
 
 	readCardTool := mcp.NewTool("read_card",
 		mcp.WithDescription("Read comprehensive card information including title, description, subtasks, and comments"),
