@@ -60,6 +60,52 @@ go build -o businessmap-mcp
 ./businessmap-mcp
 ```
 
+## Nix Package
+
+This project includes a Nix flake for easy installation and development using the Nix package manager.
+
+### Using in Your Flake
+
+Add to your `flake.nix` inputs and use in your system or home configuration:
+
+```nix
+{
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    # Add businessmap-mcp as an input
+    businessmap-mcp = {
+      url = "github:hivemq/businessmap-mcp";
+      inputs.nixpkgs.follows = "nixpkgs";  # Use same nixpkgs version
+    };
+  };
+  
+  outputs = { self, nixpkgs, businessmap-mcp }: {
+    # Use in systemPackages or home.packages
+    environment.systemPackages = [ businessmap-mcp.packages.${system}.default ];
+  };
+}
+```
+
+### Local Development
+
+The Nix flake provides a development shell with Go 1.24 and useful development tools:
+
+```bash
+# Enter development environment
+nix develop
+
+# Available tools in the shell:
+# - go (Go 1.24.6)
+# - gopls (Go language server)  
+# - gotools (Go development utilities)
+# - go-outline (Go code outlining)
+# - delve (Go debugger)
+
+# Build and run
+go run . -version
+go test ./...
+```
+
 ## Claude Code Integration
 
 This MCP server is designed to work seamlessly with Claude Code. Follow these steps to integrate:
@@ -82,7 +128,7 @@ go build -o businessmap-mcp
 
 Add the MCP server to your Claude Code configuration. Create or edit your Claude Code configuration file:
 
-**For Claude Code CLI** (`~/.claude/.mcp.json`):
+**For Claude Code CLI** (`~/.claude/settings.json`):
 ```json
 {
   "mcpServers": {
