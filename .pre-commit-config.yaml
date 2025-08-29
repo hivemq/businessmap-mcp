@@ -6,3 +6,8 @@ repos:
       - id: conventional-pre-commit
         stages: [commit-msg]
         args: [feat, fix, docs, test, chore, revert]
+
+  - repo: https://github.com/python-jsonschema/check-jsonschema
+    rev: 0.29.3
+    hooks:
+      - id: check-github-workflows
