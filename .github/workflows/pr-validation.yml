@@ -1,0 +1,48 @@
+name: PR Validation
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+jobs:
+  validate-pr:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: DeterminateSystems/determinate-nix-action@v3
+
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+        with:
+          use-flakehub: false
+          diff-store: true
+
+      - name: Run pre-commit
+        run: nix develop . --command pre-commit
+
+      - name: Check version bump
+        uses: mathieudutour/github-tag-action@v6.1
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          dry_run: true
+          default_bump: false
+        id: version_check
+
+      - name: Verify VERSION file matches expected bump
+        run: |
+          EXPECTED_VERSION="${{ steps.version_check.outputs.new_version }}"
+          CURRENT_VERSION=$(cat VERSION | tr -d '\n')
+
+          if [ "$CURRENT_VERSION" != "$EXPECTED_VERSION" ]; then
+            echo "::error file=VERSION,line=1::VERSION file needs to be updated to $EXPECTED_VERSION (currently $CURRENT_VERSION). Based on your conventional commits, the version should be bumped to $EXPECTED_VERSION."
+            echo "❌ VERSION file mismatch"
+            echo "Expected: $EXPECTED_VERSION (based on conventional commits)"
+            echo "Current:  $CURRENT_VERSION"
+            exit 1
+          fi
+
+          echo "✅ VERSION file matches expected version: $CURRENT_VERSION"

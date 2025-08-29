@@ -42,7 +42,6 @@
             description = "Model Context Protocol server for Kanbanize integration";
             homepage = "https://github.com/hivemq/businessmap-mcp";
             license = licenses.asl20;
-            maintainers = [];
             platforms = platforms.unix;
           };
         };
@@ -59,6 +58,7 @@
             gotools
             go-outline
             delve
+            pre-commit
           ];
 
           shellHook = ''
