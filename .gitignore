@@ -75,6 +75,7 @@ mbmcp
 businessmap-mcp
 dist/
 build/
+result
 
 # Logs
 *.log
