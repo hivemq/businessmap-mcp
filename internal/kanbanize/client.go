@@ -92,11 +92,20 @@ func (c *Client) ReadCard(cardIDOrURL string) (*ReadCardResponse, error) {
 		subtasks = []Subtask{}
 	}
 
+	var lastEndTime *time.Time
+	if cardData.LastEndTime != nil && *cardData.LastEndTime != "" {
+		if parsed, err := time.Parse(time.RFC3339, *cardData.LastEndTime); err == nil {
+			lastEndTime = &parsed
+		}
+	}
+
 	return &ReadCardResponse{
 		Title:       cardData.Title,
 		Description: cardData.Description,
 		Comments:    comments,
 		Subtasks:    subtasks,
+		LinkedCards: cardData.LinkedCards,
+		LastEndTime: lastEndTime,
 	}, nil
 }
 

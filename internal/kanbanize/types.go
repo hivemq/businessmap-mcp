@@ -26,10 +26,12 @@ type APIError struct {
 }
 
 type ReadCardResponse struct {
-	Title       string    `json:"title"`
-	Description string    `json:"description"`
-	Subtasks    []Subtask `json:"subtasks"`
-	Comments    []Comment `json:"comments"`
+	Title       string       `json:"title"`
+	Description string       `json:"description"`
+	Subtasks    []Subtask    `json:"subtasks"`
+	Comments    []Comment    `json:"comments"`
+	LinkedCards []LinkedCard `json:"linked_cards"`
+	LastEndTime *time.Time   `json:"last_end_time,omitempty"`
 }
 
 type Subtask struct {
@@ -51,9 +53,17 @@ type CardDataResponse struct {
 }
 
 type CardData struct {
-	CardID      int    `json:"card_id"`
-	Title       string `json:"title"`
-	Description string `json:"description"`
+	CardID      int          `json:"card_id"`
+	Title       string       `json:"title"`
+	Description string       `json:"description"`
+	LinkedCards []LinkedCard `json:"linked_cards"`
+	LastEndTime *string      `json:"last_end_time"`
+}
+
+type LinkedCard struct {
+	CardID   int    `json:"card_id"`
+	LinkType string `json:"link_type"`
+	Title    string `json:"title,omitempty"`
 }
 
 type CommentsResponse struct {
