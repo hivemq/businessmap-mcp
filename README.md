@@ -8,10 +8,10 @@ A Go-based Model Context Protocol (MCP) server that provides comprehensive acces
 
 ## Features
 
-- **🎯 Two MCP Tools**: 
+- **🎯 Two MCP Tools**:
   - `read_card` - Comprehensive card information retrieval
   - `add_card_comment` - Add comments to existing cards
-- **📊 Structured Data**: Returns clean JSON with title, description, subtasks, and comments
+- **📊 Structured Data**: Returns clean JSON with title, description, subtasks, comments, custom fields, linked cards, and timestamps
 - **✍️ Card Interaction**: Add comments to cards directly through the API
 - **🔐 Secure Authentication**: API key and base URL configuration via environment variables
 - **🔗 Direct API Integration**: Uses official Businessmap API v2 endpoints
@@ -222,12 +222,12 @@ The MCP server communicates via stdin/stdout using the JSON-RPC protocol. It pro
 
 ### `read_card`
 
-**Description**: Read comprehensive card information including title, description, subtasks, and comments
+**Description**: Read comprehensive card information including title, description, subtasks, comments, custom fields, linked cards, and timestamps
 
 **Parameters**:
 - `card_id` (string, required): The ID of the Kanbanize card to read or full card URL
 
-**Example Response**: 
+**Example Response**:
 ```json
 {
   "title": "Card Title",
@@ -247,7 +247,42 @@ The MCP server communicates via stdin/stdout using the JSON-RPC protocol. It pro
       "author": "Author Name",
       "created_at": "2023-12-01T10:00:00Z"
     }
-  ]
+  ],
+  "linked_cards": [
+    {
+      "card_id": 789,
+      "link_type": "child",
+      "title": "Child Card Title"
+    },
+    {
+      "card_id": 101,
+      "link_type": "parent",
+      "title": "Parent Card Title"
+    }
+  ],
+  "custom_fields": [
+    {
+      "field_id": 1,
+      "name": "Priority",
+      "value": "High"
+    },
+    {
+      "field_id": 2,
+      "name": "Story Points",
+      "value": 8
+    }
+  ],
+  "created_at": "2024-01-15T09:30:00Z",
+  "last_modified": "2024-01-20T14:45:00Z",
+  "in_current_position_since": "2024-01-18T10:00:00Z",
+  "first_start_time": "2024-01-16T08:00:00Z",
+  "first_end_time": "2024-01-19T17:00:00Z",
+  "last_start_time": "2024-01-16T08:00:00Z",
+  "last_end_time": "2024-01-19T17:00:00Z",
+  "planned_start_date": "2024-01-15",
+  "planned_end_date": "2024-01-20",
+  "actual_start_time": "2024-01-16T08:00:00Z",
+  "actual_end_time": "2024-01-19T17:00:00Z"
 }
 ```
 
@@ -358,7 +393,29 @@ The server should return a clean JSON response like:
       "author": "Author Name",
       "created_at": "2023-12-01T10:00:00Z"
     }
-  ]
+  ],
+  "linked_cards": [
+    {
+      "card_id": 789,
+      "link_type": "child",
+      "title": "Child Card Title"
+    }
+  ],
+  "custom_fields": [
+    {
+      "field_id": 1,
+      "name": "Priority",
+      "value": "High"
+    },
+    {
+      "field_id": 2,
+      "name": "Story Points",
+      "value": 8
+    }
+  ],
+  "created_at": "2024-01-15T09:30:00Z",
+  "last_modified": "2024-01-20T14:45:00Z",
+  "last_end_time": "2024-01-19T17:00:00Z"
 }
 ```
 
