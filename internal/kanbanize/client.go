@@ -63,12 +63,48 @@ func (c *Client) extractCardID(input string) (string, error) {
 	// Also matches variations like .../crl_board/
 	pattern := regexp.MustCompile(`/c(?:tr|r)l_board/\d+/cards/(\d+)(?:/.*)?`)
 	matches := pattern.FindStringSubmatch(input)
-	
+
 	if len(matches) < 2 {
 		return "", fmt.Errorf("invalid BusinessMap URL format: %s", input)
 	}
 
 	return matches[1], nil
+}
+
+// parseTimestamp parses an RFC3339 timestamp string into a time.Time pointer
+func parseTimestamp(ts *string) *time.Time {
+	if ts == nil || *ts == "" {
+		return nil
+	}
+	if parsed, err := time.Parse(time.RFC3339, *ts); err == nil {
+		return &parsed
+	}
+	return nil
+}
+
+// parseCommentTimestamp tries multiple date formats to parse comment timestamps
+func parseCommentTimestamp(dateStr string) time.Time {
+	if dateStr == "" {
+		return time.Time{}
+	}
+
+	// Try common formats
+	formats := []string{
+		time.RFC3339,           // "2006-01-02T15:04:05Z07:00"
+		"2006-01-02T15:04:05Z", // RFC3339 without timezone offset
+		"2006-01-02 15:04:05",  // Space-separated format
+		"2006-01-02T15:04:05",  // T-separated without timezone
+		time.RFC3339Nano,       // With nanoseconds
+	}
+
+	for _, format := range formats {
+		if parsed, err := time.Parse(format, dateStr); err == nil {
+			return parsed
+		}
+	}
+
+	// If all parsing fails, return zero time
+	return time.Time{}
 }
 
 func (c *Client) ReadCard(cardIDOrURL string) (*ReadCardResponse, error) {
@@ -92,21 +128,33 @@ func (c *Client) ReadCard(cardIDOrURL string) (*ReadCardResponse, error) {
 		subtasks = []Subtask{}
 	}
 
-	var lastEndTime *time.Time
-	if cardData.LastEndTime != nil && *cardData.LastEndTime != "" {
-		if parsed, err := time.Parse(time.RFC3339, *cardData.LastEndTime); err == nil {
-			lastEndTime = &parsed
-		}
+	response := &ReadCardResponse{
+		Title:                  cardData.Title,
+		Description:            cardData.Description,
+		Comments:               comments,
+		Subtasks:               subtasks,
+		LinkedCards:            cardData.LinkedCards,
+		CustomFields:           cardData.CustomFields,
+		CreatedAt:              parseTimestamp(cardData.CreatedAt),
+		LastModified:           parseTimestamp(cardData.LastModified),
+		InCurrentPositionSince: parseTimestamp(cardData.InCurrentPositionSince),
+		FirstRequestTime:       parseTimestamp(cardData.FirstRequestTime),
+		FirstStartTime:         parseTimestamp(cardData.FirstStartTime),
+		FirstEndTime:           parseTimestamp(cardData.FirstEndTime),
+		LastRequestTime:        parseTimestamp(cardData.LastRequestTime),
+		LastStartTime:          parseTimestamp(cardData.LastStartTime),
+		LastEndTime:            parseTimestamp(cardData.LastEndTime),
 	}
 
-	return &ReadCardResponse{
-		Title:       cardData.Title,
-		Description: cardData.Description,
-		Comments:    comments,
-		Subtasks:    subtasks,
-		LinkedCards: cardData.LinkedCards,
-		LastEndTime: lastEndTime,
-	}, nil
+	// Parse initiative details if present
+	if cardData.InitiativeDetails != nil {
+		response.PlannedStartDate = cardData.InitiativeDetails.PlannedStartDate
+		response.PlannedEndDate = cardData.InitiativeDetails.PlannedEndDate
+		response.ActualStartTime = parseTimestamp(cardData.InitiativeDetails.ActualStartTime)
+		response.ActualEndTime = parseTimestamp(cardData.InitiativeDetails.ActualEndTime)
+	}
+
+	return response, nil
 }
 
 func (c *Client) AddCardComment(cardIDOrURL, text string) error {
@@ -136,7 +184,7 @@ func (c *Client) AddCardComment(cardIDOrURL, text string) error {
 
 func (c *Client) getCard(cardID string) (*CardData, error) {
 	url := fmt.Sprintf("%s/api/v2/cards/%s", c.baseURL, cardID)
-	
+
 	body, err := c.makeAPIRequest(url)
 	if err != nil {
 		return nil, err
@@ -146,13 +194,13 @@ func (c *Client) getCard(cardID string) (*CardData, error) {
 	if err := json.Unmarshal(body, &response); err != nil {
 		return nil, fmt.Errorf("failed to parse card data: %w", err)
 	}
-	
+
 	return &response.Data, nil
 }
 
 func (c *Client) getCardComments(cardID string) ([]Comment, error) {
 	url := fmt.Sprintf("%s/api/v2/cards/%s/comments", c.baseURL, cardID)
-	
+
 	body, err := c.makeAPIRequest(url)
 	if err != nil {
 		return []Comment{}, nil
@@ -165,21 +213,20 @@ func (c *Client) getCardComments(cardID string) ([]Comment, error) {
 
 	comments := make([]Comment, len(response.Data))
 	for i, commentData := range response.Data {
-		createdAt, _ := time.Parse("2006-01-02 15:04:05", commentData.CreatedDate)
 		comments[i] = Comment{
 			ID:        strconv.Itoa(commentData.CommentID),
 			Text:      commentData.Text,
 			Author:    commentData.AuthorName,
-			CreatedAt: createdAt,
+			CreatedAt: parseCommentTimestamp(commentData.CreatedAt),
 		}
 	}
-	
+
 	return comments, nil
 }
 
 func (c *Client) getCardSubtasks(cardID string) ([]Subtask, error) {
 	url := fmt.Sprintf("%s/api/v2/cards/%s/subtasks", c.baseURL, cardID)
-	
+
 	body, err := c.makeAPIRequest(url)
 	if err != nil {
 		return []Subtask{}, nil
@@ -199,7 +246,7 @@ func (c *Client) getCardSubtasks(cardID string) ([]Subtask, error) {
 			Completed:   subtaskData.Finished == 1,
 		}
 	}
-	
+
 	return subtasks, nil
 }
 
