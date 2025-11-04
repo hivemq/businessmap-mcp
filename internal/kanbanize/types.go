@@ -26,10 +26,25 @@ type APIError struct {
 }
 
 type ReadCardResponse struct {
-	Title       string    `json:"title"`
-	Description string    `json:"description"`
-	Subtasks    []Subtask `json:"subtasks"`
-	Comments    []Comment `json:"comments"`
+	Title                  string        `json:"title"`
+	Description            string        `json:"description"`
+	Subtasks               []Subtask     `json:"subtasks"`
+	Comments               []Comment     `json:"comments"`
+	LinkedCards            []LinkedCard  `json:"linked_cards"`
+	CustomFields           []CustomField `json:"custom_fields,omitempty"`
+	CreatedAt              *time.Time    `json:"created_at,omitempty"`
+	LastModified           *time.Time    `json:"last_modified,omitempty"`
+	InCurrentPositionSince *time.Time    `json:"in_current_position_since,omitempty"`
+	FirstRequestTime       *time.Time    `json:"first_request_time,omitempty"`
+	FirstStartTime         *time.Time    `json:"first_start_time,omitempty"`
+	FirstEndTime           *time.Time    `json:"first_end_time,omitempty"`
+	LastRequestTime        *time.Time    `json:"last_request_time,omitempty"`
+	LastStartTime          *time.Time    `json:"last_start_time,omitempty"`
+	LastEndTime            *time.Time    `json:"last_end_time,omitempty"`
+	PlannedStartDate       *string       `json:"planned_start_date,omitempty"`
+	PlannedEndDate         *string       `json:"planned_end_date,omitempty"`
+	ActualStartTime        *time.Time    `json:"actual_start_time,omitempty"`
+	ActualEndTime          *time.Time    `json:"actual_end_time,omitempty"`
 }
 
 type Subtask struct {
@@ -37,6 +52,12 @@ type Subtask struct {
 	Title       string `json:"title"`
 	Description string `json:"description,omitempty"`
 	Completed   bool   `json:"completed"`
+}
+
+type CustomField struct {
+	FieldID int         `json:"field_id"`
+	Name    string      `json:"name"`
+	Value   interface{} `json:"value"`
 }
 
 type Comment struct {
@@ -50,10 +71,35 @@ type CardDataResponse struct {
 	Data CardData `json:"data"`
 }
 
+type InitiativeDetails struct {
+	PlannedStartDate *string `json:"planned_start_date"`
+	PlannedEndDate   *string `json:"planned_end_date"`
+	ActualStartTime  *string `json:"actual_start_time"`
+	ActualEndTime    *string `json:"actual_end_time"`
+}
+
 type CardData struct {
-	CardID      int    `json:"card_id"`
-	Title       string `json:"title"`
-	Description string `json:"description"`
+	CardID                 int                `json:"card_id"`
+	Title                  string             `json:"title"`
+	Description            string             `json:"description"`
+	LinkedCards            []LinkedCard       `json:"linked_cards"`
+	CustomFields           []CustomField      `json:"custom_fields"`
+	CreatedAt              *string            `json:"created_at"`
+	LastModified           *string            `json:"last_modified"`
+	InCurrentPositionSince *string            `json:"in_current_position_since"`
+	FirstRequestTime       *string            `json:"first_request_time"`
+	FirstStartTime         *string            `json:"first_start_time"`
+	FirstEndTime           *string            `json:"first_end_time"`
+	LastRequestTime        *string            `json:"last_request_time"`
+	LastStartTime          *string            `json:"last_start_time"`
+	LastEndTime            *string            `json:"last_end_time"`
+	InitiativeDetails      *InitiativeDetails `json:"initiative_details"`
+}
+
+type LinkedCard struct {
+	CardID   int    `json:"card_id"`
+	LinkType string `json:"link_type"`
+	Title    string `json:"title,omitempty"`
 }
 
 type CommentsResponse struct {
@@ -61,10 +107,10 @@ type CommentsResponse struct {
 }
 
 type CommentData struct {
-	CommentID   int    `json:"comment_id"`
-	Text        string `json:"text"`
-	AuthorName  string `json:"author_name"`
-	CreatedDate string `json:"created_date"`
+	CommentID  int    `json:"comment_id"`
+	Text       string `json:"text"`
+	AuthorName string `json:"author_name"`
+	CreatedAt  string `json:"created_at"`
 }
 
 type SubtasksResponse struct {
