@@ -25,6 +25,7 @@ import (
 	"log"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/joho/godotenv"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -124,6 +125,84 @@ func main() {
 		}
 
 		return mcp.NewToolResultText("Comment added successfully"), nil
+	})
+
+	readCardWithRetryTool := mcp.NewTool("read_card_with_retry",
+		mcp.WithDescription("Fetches a card and optionally comments/subtasks using exponential full-jitter backoff with respect for Retry-After headers. Returns structured envelope including attempts, wait time, and partial errors when enabled."),
+		mcp.WithString("card_id",
+			mcp.Required(),
+			mcp.Description("The ID of the Kanbanize card to read or full card URL"),
+		),
+		mcp.WithNumber("max_attempts",
+			mcp.Description("Upper bound attempts per endpoint (default: 10)"),
+		),
+		mcp.WithNumber("initial_delay_ms",
+			mcp.Description("Initial backoff in milliseconds (default: 5000)"),
+		),
+		mcp.WithNumber("max_delay_ms",
+			mcp.Description("Max single delay in milliseconds (default: 300000 = 5 min)"),
+		),
+		mcp.WithNumber("multiplier",
+			mcp.Description("Exponential growth factor (default: 2.0)"),
+		),
+		mcp.WithBoolean("respect_retry_after",
+			mcp.Description("Honor server Retry-After header if present (default: true)"),
+		),
+		mcp.WithNumber("total_wait_cap_ms",
+			mcp.Description("Global time cap in milliseconds (default: 1200000 = 20 min)"),
+		),
+		mcp.WithBoolean("fail_on_partial",
+			mcp.Description("If true, abort when secondary endpoints fail (default: false)"),
+		),
+	)
+
+	mcpServer.AddTool(readCardWithRetryTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		cardID := mcp.ParseString(request, "card_id", "")
+		if cardID == "" {
+			return mcp.NewToolResultError("card_id parameter is required"), nil
+		}
+
+		// Build retry config with defaults
+		retryConfig := kanbanize.DefaultRetryConfig()
+
+		// Override with provided parameters
+		if maxAttempts := mcp.ParseFloat64(request, "max_attempts", 0); maxAttempts > 0 {
+			retryConfig.MaxAttempts = int(maxAttempts)
+		}
+		if initialDelayMs := mcp.ParseFloat64(request, "initial_delay_ms", 0); initialDelayMs > 0 {
+			retryConfig.InitialDelay = time.Duration(initialDelayMs) * time.Millisecond
+		}
+		if maxDelayMs := mcp.ParseFloat64(request, "max_delay_ms", 0); maxDelayMs > 0 {
+			retryConfig.MaxDelay = time.Duration(maxDelayMs) * time.Millisecond
+		}
+		if multiplier := mcp.ParseFloat64(request, "multiplier", 0); multiplier > 0 {
+			retryConfig.Multiplier = multiplier
+		}
+		if totalWaitCapMs := mcp.ParseFloat64(request, "total_wait_cap_ms", 0); totalWaitCapMs > 0 {
+			retryConfig.TotalWaitCap = time.Duration(totalWaitCapMs) * time.Millisecond
+		}
+
+		// Parse boolean parameters
+		retryConfig.RespectRetryAfter = mcp.ParseBoolean(request, "respect_retry_after", true)
+		failOnPartial := mcp.ParseBoolean(request, "fail_on_partial", false)
+
+		// Execute with retry
+		cardData, err := client.ReadCardWithRetry(ctx, cardID, retryConfig, failOnPartial)
+		if err != nil {
+			// Return partial results if available
+			if cardData != nil {
+				cardJSON, _ := json.Marshal(cardData)
+				return mcp.NewToolResultError(fmt.Sprintf("Partial failure: %s\n\nPartial data:\n%s", err.Error(), string(cardJSON))), nil
+			}
+			return mcp.NewToolResultError("Failed to read card: "+err.Error()), nil
+		}
+
+		cardJSON, err := json.Marshal(cardData)
+		if err != nil {
+			return mcp.NewToolResultError("Failed to serialize card data: "+err.Error()), nil
+		}
+
+		return mcp.NewToolResultText(string(cardJSON)), nil
 	})
 
 	if err := server.ServeStdio(mcpServer); err != nil {
