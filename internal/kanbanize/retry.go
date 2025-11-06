@@ -407,7 +407,7 @@ func (c *Client) fetchWithRetry(ctx context.Context, cfg RetryConfig, name, url 
 		}
 
 		// Check if it's a rate limit error
-		_, isRateLimit := isRateLimitError(err)
+		rateLimitErr, isRateLimit := isRateLimitError(err)
 		if isRateLimit {
 			result.rateLimitHits++
 		}
@@ -428,7 +428,6 @@ func (c *Client) fetchWithRetry(ctx context.Context, cfg RetryConfig, name, url 
 		}
 
 		// Calculate backoff delay
-		rateLimitErr, _ := isRateLimitError(err)
 		backoffDelay := exponentialBackoffWithJitter(cfg, attempt, rateLimitErr.RetryAfter)
 
 		// Check if waiting would exceed total wait cap
