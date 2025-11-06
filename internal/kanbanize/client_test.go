@@ -601,6 +601,6 @@ func TestReadCard_WithNullCustomFields(t *testing.T) {
 
 	// Null custom fields should result in nil or empty slice
 	if len(response.CustomFields) != 0 {
-		t.Errorf("Expected CustomFields to be nil or empty, got %v", response.CustomFields)
+		t.Errorf("Expected CustomFields to be empty, got %v", response.CustomFields)
 	}
 }
