@@ -284,6 +284,17 @@ func (c *Client) makeAPIRequestWithBody(method, url string, body interface{}) ([
 	}
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		// Check for rate limiting first
+		if resp.StatusCode == http.StatusTooManyRequests {
+			retryAfter := parseRetryAfter(resp.Header.Get("Retry-After"))
+			return nil, &RateLimitError{
+				StatusCode: resp.StatusCode,
+				RetryAfter: retryAfter,
+				RawBody:    string(responseBody),
+			}
+		}
+
+		// Handle other API errors
 		var apiErr APIError
 		if err := json.Unmarshal(responseBody, &apiErr); err == nil {
 			return nil, fmt.Errorf("API error (status %d): %s", resp.StatusCode, apiErr.Message)
