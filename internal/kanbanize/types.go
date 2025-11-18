@@ -17,12 +17,27 @@
 package kanbanize
 
 import (
+	"fmt"
 	"time"
 )
 
 type APIError struct {
 	Message string `json:"message"`
 	Code    int    `json:"code"`
+}
+
+// RateLimitError represents an HTTP 429 rate limit error with retry information
+type RateLimitError struct {
+	StatusCode int
+	RetryAfter time.Duration // parsed from Retry-After header (seconds or HTTP-date)
+	RawBody    string        // original body for diagnostics
+}
+
+func (e *RateLimitError) Error() string {
+	if e.RetryAfter > 0 {
+		return fmt.Sprintf("rate limit exceeded (HTTP %d): retry after %v", e.StatusCode, e.RetryAfter)
+	}
+	return fmt.Sprintf("rate limit exceeded (HTTP %d)", e.StatusCode)
 }
 
 type ReadCardResponse struct {
@@ -138,4 +153,15 @@ type AddCommentData struct {
 	Text        string `json:"text"`
 	AuthorName  string `json:"author_name"`
 	CreatedDate string `json:"created_date"`
+}
+
+// ReadCardWithRetryResponse wraps the card data with retry metadata
+type ReadCardWithRetryResponse struct {
+	CardID         string                    `json:"card_id"`
+	Attempts       map[string]int            `json:"attempts"`
+	WaitSeconds    float64                   `json:"wait_seconds"`
+	RateLimitHits  int                       `json:"rate_limit_hits"`
+	Completed      map[string]bool           `json:"completed"`
+	PartialError   map[string]string         `json:"partial_error,omitempty"`
+	Data           *ReadCardResponse         `json:"data"`
 }
