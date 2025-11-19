@@ -1,0 +1,2314 @@
+diff --git a/README.md b/README.md
+index 0f8be79..78b059e 100644
+--- a/README.md
++++ b/README.md
+@@ -8,8 +8,10 @@ A Go-based Model Context Protocol (MCP) server that provides comprehensive acces
+ 
+ ## Features
+ 
+-- **🎯 Two MCP Tools**:
++- **🎯 Four MCP Tools**:
+   - `read_card` - Comprehensive card information retrieval
++  - `read_card_with_retry` - Card retrieval with exponential backoff retry for rate limiting
++  - `get_cards_with_retry` - Query multiple cards by board/lane/workflow/card IDs with retry
+   - `add_card_comment` - Add comments to existing cards
+ - **📊 Structured Data**: Returns clean JSON with title, description, subtasks, comments, custom fields, linked cards, and timestamps
+ - **✍️ Card Interaction**: Add comments to cards directly through the API
+@@ -214,11 +216,23 @@ Please add a comment "Task completed" to https://yourcompany.kanbanize.com/ctrl_
+ Please add a comment "Task completed" to https://yourcompany.kanbanize.com/ctrl_board/123/cards/12345/comments/
+ ```
+ 
+-Claude will automatically use the MCP server to fetch comprehensive card information or add comments as requested.
++**Querying multiple cards by board**:
++```
++Please get all cards from board 41
++Please fetch cards from boards 1, 2, and 3
++```
++
++**Querying cards by lane or workflow**:
++```
++Please get all cards in lane 394
++Please fetch cards from workflow 271
++```
++
++Claude will automatically use the MCP server to fetch comprehensive card information, query multiple cards, or add comments as requested.
+ 
+ ## Usage
+ 
+-The MCP server communicates via stdin/stdout using the JSON-RPC protocol. It provides two tools:
++The MCP server communicates via stdin/stdout using the JSON-RPC protocol. It provides four tools:
+ 
+ ### `read_card`
+ 
+@@ -286,15 +300,87 @@ The MCP server communicates via stdin/stdout using the JSON-RPC protocol. It pro
+ }
+ ```
+ 
++### `read_card_with_retry`
++
++**Description**: Read comprehensive card information with exponential backoff retry logic for handling rate limits
++
++**Parameters**:
++- `card_id` (string, required): The ID of the Kanbanize card to read or full card URL
++- `max_attempts` (number, optional): Upper bound attempts per endpoint (default: 10)
++- `initial_delay_ms` (number, optional): Initial backoff in milliseconds (default: 5000)
++- `max_delay_ms` (number, optional): Max single delay in milliseconds (default: 300000 = 5 min)
++- `multiplier` (number, optional): Exponential growth factor (default: 2.0)
++- `respect_retry_after` (boolean, optional): Honor server Retry-After header (default: true)
++- `total_wait_cap_ms` (number, optional): Global time cap in milliseconds (default: 1200000 = 20 min)
++- `fail_on_partial` (boolean, optional): Abort when secondary endpoints fail (default: false)
++
++**Example Response**:
++```json
++{
++  "card_id": "12345",
++  "attempts": {"card": 2, "comments": 1, "subtasks": 1},
++  "wait_seconds": 5.2,
++  "rate_limit_hits": 1,
++  "completed": {"card": true, "comments": true, "subtasks": true},
++  "data": {
++    "title": "Card Title",
++    "description": "Card description",
++    "subtasks": [...],
++    "comments": [...]
++  }
++}
++```
++
++### `get_cards_with_retry`
++
++**Description**: Query multiple cards using filter criteria with exponential backoff retry logic
++
++**Parameters**:
++- `board_ids` (string, optional): Comma-separated board IDs to filter by (e.g., "1,2,3")
++- `lane_ids` (string, optional): Comma-separated lane IDs to filter by (e.g., "4,5,6")
++- `workflow_ids` (string, optional): Comma-separated workflow IDs to filter by (e.g., "7,8,9")
++- `card_ids` (string, optional): Comma-separated card IDs to filter by (e.g., "10,11,12")
++- `max_attempts` (number, optional): Upper bound attempts (default: 10)
++- `initial_delay_ms` (number, optional): Initial backoff in milliseconds (default: 5000)
++- `max_delay_ms` (number, optional): Max single delay in milliseconds (default: 300000)
++- `multiplier` (number, optional): Exponential growth factor (default: 2.0)
++- `respect_retry_after` (boolean, optional): Honor server Retry-After header (default: true)
++- `total_wait_cap_ms` (number, optional): Global time cap in milliseconds (default: 1200000)
++- `fail_on_partial` (boolean, optional): Abort on failure (default: false)
++
++**Note**: At least one filter parameter (board_ids, lane_ids, workflow_ids, or card_ids) must be provided.
++
++**Example Response**:
++```json
++{
++  "filter_used": "board_ids",
++  "filter_values": [1, 2, 3],
++  "attempts": {"cards": 1},
++  "wait_seconds": 0.5,
++  "rate_limit_hits": 0,
++  "completed": {"cards": true},
++  "cards": [
++    {
++      "card_id": 12345,
++      "title": "Card Title",
++      "description": "Description",
++      "board_id": 1,
++      "lane_id": 10,
++      "workflow_id": 100
++    }
++  ]
++}
++```
++
+ ### `add_card_comment`
+ 
+ **Description**: Add a comment to a card
+ 
+ **Parameters**:
+-- `card_id` (string, required): The ID of the Kanbanize card to add comment to or full card URL  
++- `card_id` (string, required): The ID of the Kanbanize card to add comment to or full card URL
+ - `comment_text` (string, required): The text of the comment to add
+ 
+-**Example Response**: 
++**Example Response**:
+ ```json
+ "Comment added successfully"
+ ```
+@@ -425,6 +511,7 @@ The server uses the official Businessmap API v2 endpoints:
+ 
+ **Endpoints**:
+ ```bash
++GET  {KANBANIZE_BASE_URL}/api/v2/cards                        # Query multiple cards
+ GET  {KANBANIZE_BASE_URL}/api/v2/cards/{card_id}              # Card details
+ GET  {KANBANIZE_BASE_URL}/api/v2/cards/{card_id}/comments     # Comments
+ GET  {KANBANIZE_BASE_URL}/api/v2/cards/{card_id}/subtasks     # Subtasks
+diff --git a/VERSION b/VERSION
+index 341cf11..60a2d3e 100644
+--- a/VERSION
++++ b/VERSION
+@@ -1 +1 @@
+-0.2.0
+\ No newline at end of file
++0.4.0
+\ No newline at end of file
+diff --git a/busineesmap-mcp b/busineesmap-mcp
+new file mode 100755
+index 0000000..efc0ad8
+Binary files /dev/null and b/busineesmap-mcp differ
+diff --git a/get-cards-implementation-plan.md b/get-cards-implementation-plan.md
+new file mode 100644
+index 0000000..90ea1ef
+--- /dev/null
++++ b/get-cards-implementation-plan.md
+@@ -0,0 +1,244 @@
++# Implementation Plan: get_cards_with_retry Tool
++
++## Overview
++
++Add support for querying multiple cards using filter criteria (`board_ids`, `lane_ids`, `workflow_ids`, `card_ids`) with exponential backoff retry logic.
++
++## Current State Analysis
++
++### Existing Tools
++1. `read_card` (main.go:72-97) - Reads a single card by `card_id`
++2. `read_card_with_retry` (main.go:130-206) - Same as above but with retry logic
++3. `add_card_comment` (main.go:99-128) - Adds a comment to a card
++
++### Current Implementation
++- Both read tools use `GET /api/v2/cards/{card_id}` endpoint
++- They require a specific `card_id` parameter
++- They fetch a single card with its comments and subtasks
++
++## The getCards Endpoint
++
++The `GET /api/v2/cards` endpoint (without a card_id) is a **different endpoint** that:
++- Returns **multiple cards** based on filter criteria
++- Accepts query parameters: `board_ids`, `lane_ids`, `workflow_ids`, and `card_ids` (arrays)
++- These parameters are **mutually exclusive filters** - you use one OR another, not all together
++- Returns a list of cards matching the filter criteria
++
++## Decision: Create One New Tool
++
++**Create `get_cards_with_retry`** because:
++1. **Different API Endpoint**: `GET /api/v2/cards` vs `GET /api/v2/cards/{card_id}`
++2. **Different Purpose**: Bulk querying vs single card retrieval
++3. **Different Response Structure**: Array of cards vs single card object
++4. **Consistency**: Maintains pattern with existing `read_card_with_retry` tool
++5. **No breaking changes**: Existing tools remain stable
++
++## New Tool Specification
++
++### Tool: `get_cards_with_retry`
++
++**Purpose**: Query multiple cards using filter criteria with exponential backoff retry logic
++
++**Parameters**:
++
++Filter Parameters (at least ONE required):
++- `board_ids` (optional, array of integers) - Filter by board IDs
++- `lane_ids` (optional, array of integers) - Filter by lane IDs
++- `workflow_ids` (optional, array of integers) - Filter by workflow IDs
++- `card_ids` (optional, array of integers) - Filter by specific card IDs
++
++Retry Configuration Parameters (all optional):
++- `max_attempts` (default: 10) - Upper bound attempts per endpoint
++- `initial_delay_ms` (default: 5000) - Initial backoff in milliseconds
++- `max_delay_ms` (default: 300000) - Max single delay in milliseconds (5 min)
++- `multiplier` (default: 2.0) - Exponential growth factor
++- `respect_retry_after` (default: true) - Honor server Retry-After header
++- `total_wait_cap_ms` (default: 1200000) - Global time cap in milliseconds (20 min)
++- `fail_on_partial` (default: false) - Abort when secondary endpoints fail
++
++**Validation**:
++- At least one of: board_ids, lane_ids, workflow_ids, or card_ids must be provided
++- Parameters are arrays (can specify multiple IDs in each)
++- Example: board_ids=[1,2,3] returns cards from boards 1, 2, and 3
++
++**Returns**: Structured envelope with retry metadata + array of cards
++
++**Response Structure**:
++```json
++{
++  "filter_used": "board_ids",
++  "filter_values": [1, 2, 3],
++  "attempts": {"cards": 2},
++  "wait_seconds": 5.2,
++  "rate_limit_hits": 1,
++  "completed": {"cards": true},
++  "partial_error": {},
++  "cards": [
++    {
++      "card_id": 123,
++      "title": "Sample Card",
++      "description": "Card description",
++      "board_id": 1,
++      "lane_id": 5,
++      "workflow_id": 10
++    }
++  ]
++}
++```
++
++## Implementation Steps
++
++### Step 1: Update `internal/kanbanize/types.go`
++
++Add the following types:
++
++1. **GetCardsRequest** - Query parameters for filtering
++```go
++type GetCardsRequest struct {
++    BoardIDs    []int `json:"board_ids,omitempty"`
++    LaneIDs     []int `json:"lane_ids,omitempty"`
++    WorkflowIDs []int `json:"workflow_ids,omitempty"`
++    CardIDs     []int `json:"card_ids,omitempty"`
++}
++```
++
++2. **CardSummary** - Lighter card data structure
++```go
++type CardSummary struct {
++    CardID      int    `json:"card_id"`
++    Title       string `json:"title"`
++    Description string `json:"description"`
++    BoardID     int    `json:"board_id"`
++    LaneID      int    `json:"lane_id"`
++    WorkflowID  int    `json:"workflow_id"`
++    // Add other relevant fields from API response
++}
++```
++
++3. **GetCardsResponse** - API response structure
++```go
++type GetCardsResponse struct {
++    Data []CardSummary `json:"data"`
++}
++```
++
++4. **GetCardsWithRetryResponse** - Envelope with metadata
++```go
++type GetCardsWithRetryResponse struct {
++    FilterUsed    string            `json:"filter_used"`
++    FilterValues  []int             `json:"filter_values"`
++    Attempts      map[string]int    `json:"attempts"`
++    WaitSeconds   float64           `json:"wait_seconds"`
++    RateLimitHits int               `json:"rate_limit_hits"`
++    Completed     map[string]bool   `json:"completed"`
++    PartialError  map[string]string `json:"partial_error,omitempty"`
++    Cards         []CardSummary     `json:"cards"`
++}
++```
++
++### Step 2: Update `internal/kanbanize/client.go`
++
++Add two methods:
++
++1. **getCards** (private helper)
++```go
++func (c *Client) getCards(filter GetCardsRequest) ([]CardSummary, error) {
++    // Build query parameters from filter
++    // Make API request to GET /api/v2/cards
++    // Parse response
++    // Return cards
++}
++```
++
++2. **GetCardsWithRetry** (public method)
++```go
++func (c *Client) GetCardsWithRetry(
++    ctx context.Context,
++    filter GetCardsRequest,
++    retryConfig RetryConfig,
++    failOnPartial bool,
++) (*GetCardsWithRetryResponse, error) {
++    // Validate at least one filter is provided
++    // Use retry logic from existing implementation
++    // Track attempts, wait time, rate limit hits
++    // Return structured response
++}
++```
++
++### Step 3: Update `internal/kanbanize/retry.go` (if needed)
++
++Minor adjustments to support array responses:
++- Ensure retry logic works with the new getCards method
++- May not need changes if retry logic is generic enough
++
++### Step 4: Update `main.go`
++
++Register the new tool:
++
++```go
++getCardsWithRetryTool := mcp.NewTool("get_cards_with_retry",
++    mcp.WithDescription("Query multiple cards using filter criteria with exponential backoff retry logic"),
++    // Add parameters for board_ids, lane_ids, workflow_ids, card_ids (arrays)
++    // Add retry configuration parameters
++)
++
++mcpServer.AddTool(getCardsWithRetryTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
++    // Parse array parameters
++    // Validate at least one filter is provided
++    // Build filter request
++    // Build retry config
++    // Call client.GetCardsWithRetry()
++    // Return JSON response
++})
++```
++
++### Step 5: Add tests in `internal/kanbanize/client_test.go`
++
++Test cases:
++1. Query parameter construction for arrays
++2. Response parsing
++3. Retry logic with rate limiting
++4. Error handling when no filters provided
++5. Partial failure scenarios
++
++## File Changes Summary
++
++1. **internal/kanbanize/types.go** - Add 4 new types (~80 lines)
++2. **internal/kanbanize/client.go** - Add 2 new methods (~120 lines)
++3. **internal/kanbanize/retry.go** - Minor adjustments if needed (~20 lines)
++4. **main.go** - Add 1 new tool registration (~70 lines)
++5. **internal/kanbanize/client_test.go** - Add tests (~100 lines)
++
++**Total**: ~390 lines of new code
++
++## Design Decisions
++
++### Parameter Validation
++- At least one of: board_ids, lane_ids, workflow_ids, or card_ids must be provided
++- Parameters are arrays to allow multiple IDs
++- Empty arrays are treated as not provided
++
++### Keep Existing Tools Unchanged
++- `read_card` and `read_card_with_retry` remain focused on single-card retrieval
++- They continue to fetch full details including comments and subtasks
++- No breaking changes to existing functionality
++
++### Response Structure
++- `get_cards_with_retry` returns lighter card data (no comments/subtasks by default)
++- Users can then use `read_card_with_retry` on specific card IDs if they need full details
++- This follows the common API pattern: list → detail
++
++### Tool Set After Implementation
++1. `read_card` - Single card, no retry
++2. `read_card_with_retry` - Single card, with retry (existing)
++3. `get_cards_with_retry` - Multiple cards, with retry (new)
++4. `add_card_comment` - Add comment (existing)
++
++## Benefits
++
++✅ **Separation of concerns**: Different endpoints serve different purposes
++✅ **No breaking changes**: Existing tools remain stable
++✅ **Clear API contract**: Users know `read_card` = single card, `get_cards` = bulk query
++✅ **Flexibility**: Users can combine both (query first, then get details)
++✅ **Follows REST conventions**: Collection endpoint vs resource endpoint
++✅ **Consistent retry support**: All data-fetching tools have retry logic
+diff --git a/internal/kanbanize/client.go b/internal/kanbanize/client.go
+index b2ed516..c484821 100644
+--- a/internal/kanbanize/client.go
++++ b/internal/kanbanize/client.go
+@@ -18,6 +18,7 @@ package kanbanize
+ 
+ import (
+ 	"bytes"
++	"context"
+ 	"encoding/json"
+ 	"fmt"
+ 	"io"
+@@ -254,6 +255,106 @@ func (c *Client) makeAPIRequest(url string) ([]byte, error) {
+ 	return c.makeAPIRequestWithBody("GET", url, nil)
+ }
+ 
++// GetCardsWithRetry queries multiple cards with retry logic for rate limiting
++// It returns a structured response with metadata about retry attempts
++func (c *Client) GetCardsWithRetry(ctx context.Context, filter GetCardsRequest, cfg RetryConfig, failOnPartial bool) (*GetCardsWithRetryResponse, error) {
++	// Validate at least one filter is provided
++	if len(filter.BoardIDs) == 0 && len(filter.LaneIDs) == 0 &&
++		len(filter.WorkflowIDs) == 0 && len(filter.CardIDs) == 0 {
++		return nil, fmt.Errorf("at least one filter parameter (board_ids, lane_ids, workflow_ids, or card_ids) must be provided")
++	}
++
++	if err := cfg.Validate(); err != nil {
++		return nil, fmt.Errorf("invalid retry config: %w", err)
++	}
++
++	startTime := time.Now()
++	response := &GetCardsWithRetryResponse{
++		Attempts:     make(map[string]int),
++		Completed:    make(map[string]bool),
++		PartialError: make(map[string]string),
++		Cards:        []CardSummary{},
++	}
++
++	// Determine which filter is being used
++	if len(filter.BoardIDs) > 0 {
++		response.FilterUsed = "board_ids"
++		response.FilterValues = filter.BoardIDs
++	} else if len(filter.LaneIDs) > 0 {
++		response.FilterUsed = "lane_ids"
++		response.FilterValues = filter.LaneIDs
++	} else if len(filter.WorkflowIDs) > 0 {
++		response.FilterUsed = "workflow_ids"
++		response.FilterValues = filter.WorkflowIDs
++	} else if len(filter.CardIDs) > 0 {
++		response.FilterUsed = "card_ids"
++		response.FilterValues = filter.CardIDs
++	}
++
++	// Build the URL with query parameters
++	url := fmt.Sprintf("%s/api/v2/cards", c.baseURL)
++	queryParams := []string{}
++
++	if len(filter.BoardIDs) > 0 {
++		boardIDs := make([]string, len(filter.BoardIDs))
++		for i, id := range filter.BoardIDs {
++			boardIDs[i] = strconv.Itoa(id)
++		}
++		queryParams = append(queryParams, "board_ids="+strings.Join(boardIDs, ","))
++	}
++
++	if len(filter.LaneIDs) > 0 {
++		laneIDs := make([]string, len(filter.LaneIDs))
++		for i, id := range filter.LaneIDs {
++			laneIDs[i] = strconv.Itoa(id)
++		}
++		queryParams = append(queryParams, "lane_ids="+strings.Join(laneIDs, ","))
++	}
++
++	if len(filter.WorkflowIDs) > 0 {
++		workflowIDs := make([]string, len(filter.WorkflowIDs))
++		for i, id := range filter.WorkflowIDs {
++			workflowIDs[i] = strconv.Itoa(id)
++		}
++		queryParams = append(queryParams, "workflow_ids="+strings.Join(workflowIDs, ","))
++	}
++
++	if len(filter.CardIDs) > 0 {
++		cardIDs := make([]string, len(filter.CardIDs))
++		for i, id := range filter.CardIDs {
++			cardIDs[i] = strconv.Itoa(id)
++		}
++		queryParams = append(queryParams, "card_ids="+strings.Join(cardIDs, ","))
++	}
++
++	if len(queryParams) > 0 {
++		url += "?" + strings.Join(queryParams, "&")
++	}
++
++	// Fetch cards with retry
++	cardsResult := c.fetchWithRetry(ctx, cfg, "cards", url)
++	response.Attempts["cards"] = cardsResult.attempts
++	response.RateLimitHits = cardsResult.rateLimitHits
++	response.Completed["cards"] = cardsResult.success
++
++	if !cardsResult.success {
++		response.PartialError["cards"] = cardsResult.err.Error()
++		response.WaitSeconds = time.Since(startTime).Seconds()
++		return response, fmt.Errorf("failed to fetch cards: %w", cardsResult.err)
++	}
++
++	// Parse cards data - the API returns nested structure: data.pagination and data.data
++	var cardsResp GetCardsResponse
++	if err := json.Unmarshal(cardsResult.data, &cardsResp); err != nil {
++		// Include raw data in error for debugging
++		return response, fmt.Errorf("failed to parse cards data: %w (raw: %s)", err, string(cardsResult.data))
++	}
++
++	response.Cards = cardsResp.Data.Data
++	response.WaitSeconds = time.Since(startTime).Seconds()
++	return response, nil
++}
++
+ func (c *Client) makeAPIRequestWithBody(method, url string, body interface{}) ([]byte, error) {
+ 	var requestBody io.Reader
+ 	if body != nil {
+@@ -284,6 +385,17 @@ func (c *Client) makeAPIRequestWithBody(method, url string, body interface{}) ([
+ 	}
+ 
+ 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
++		// Check for rate limiting first
++		if resp.StatusCode == http.StatusTooManyRequests {
++			retryAfter := parseRetryAfter(resp.Header.Get("Retry-After"))
++			return nil, &RateLimitError{
++				StatusCode: resp.StatusCode,
++				RetryAfter: retryAfter,
++				RawBody:    string(responseBody),
++			}
++		}
++
++		// Handle other API errors
+ 		var apiErr APIError
+ 		if err := json.Unmarshal(responseBody, &apiErr); err == nil {
+ 			return nil, fmt.Errorf("API error (status %d): %s", resp.StatusCode, apiErr.Message)
+diff --git a/internal/kanbanize/client_test.go b/internal/kanbanize/client_test.go
+index bc2d4fc..f5111d4 100644
+--- a/internal/kanbanize/client_test.go
++++ b/internal/kanbanize/client_test.go
+@@ -17,6 +17,7 @@
+ package kanbanize
+ 
+ import (
++	"context"
+ 	"encoding/json"
+ 	"net/http"
+ 	"net/http/httptest"
+@@ -600,7 +601,223 @@ func TestReadCard_WithNullCustomFields(t *testing.T) {
+ 	}
+ 
+ 	// Null custom fields should result in nil or empty slice
+-	if response.CustomFields != nil && len(response.CustomFields) != 0 {
+-		t.Errorf("Expected CustomFields to be nil or empty, got %v", response.CustomFields)
++	if len(response.CustomFields) != 0 {
++		t.Errorf("Expected CustomFields to be empty, got %v", response.CustomFields)
++	}
++}
++
++func TestGetCardsWithRetry_Success(t *testing.T) {
++	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		if r.URL.Path == "/api/v2/cards" {
++			// Check query parameters
++			query := r.URL.Query()
++			if boardIDs := query.Get("board_ids"); boardIDs != "1,2,3" {
++				t.Errorf("Expected board_ids=1,2,3, got %s", boardIDs)
++			}
++
++			// Return raw JSON response matching actual API format
++			w.WriteHeader(http.StatusOK)
++			w.Write([]byte(`{
++				"data": {
++					"pagination": {
++						"all_pages": 1,
++						"current_page": 1,
++						"results_per_page": 200
++					},
++					"data": [
++						{
++							"card_id": 101,
++							"title": "Card 1",
++							"description": "Description 1",
++							"board_id": 1,
++							"lane_id": 10,
++							"workflow_id": 100
++						},
++						{
++							"card_id": 102,
++							"title": "Card 2",
++							"description": "Description 2",
++							"board_id": 2,
++							"lane_id": 20,
++							"workflow_id": 200
++						}
++					]
++				}
++			}`))
++		}
++	}))
++	defer server.Close()
++
++	client := NewClient(server.URL, "test-api-key")
++	filter := GetCardsRequest{
++		BoardIDs: []int{1, 2, 3},
++	}
++	cfg := RetryConfig{
++		MaxAttempts:       5,
++		InitialDelay:      100 * time.Millisecond,
++		MaxDelay:          1 * time.Second,
++		Multiplier:        2.0,
++		RespectRetryAfter: true,
++		TotalWaitCap:      10 * time.Second,
++	}
++
++	ctx := context.Background()
++	response, err := client.GetCardsWithRetry(ctx, filter, cfg, false)
++
++	if err != nil {
++		t.Fatalf("Expected no error, got %v", err)
++	}
++
++	if response.FilterUsed != "board_ids" {
++		t.Errorf("Expected FilterUsed=board_ids, got %s", response.FilterUsed)
++	}
++
++	if len(response.FilterValues) != 3 {
++		t.Errorf("Expected 3 filter values, got %d", len(response.FilterValues))
++	}
++
++	if len(response.Cards) != 2 {
++		t.Fatalf("Expected 2 cards, got %d", len(response.Cards))
++	}
++
++	// Check that both cards are present (order may vary due to map iteration)
++	foundCard101 := false
++	foundCard102 := false
++	for _, card := range response.Cards {
++		if card.CardID == 101 && card.Title == "Card 1" {
++			foundCard101 = true
++		}
++		if card.CardID == 102 && card.Title == "Card 2" {
++			foundCard102 = true
++		}
++	}
++	if !foundCard101 {
++		t.Error("Expected to find card with ID 101 and title 'Card 1'")
++	}
++	if !foundCard102 {
++		t.Error("Expected to find card with ID 102 and title 'Card 2'")
++	}
++
++	if response.Attempts["cards"] != 1 {
++		t.Errorf("Expected 1 attempt, got %d", response.Attempts["cards"])
++	}
++
++	if !response.Completed["cards"] {
++		t.Error("Expected cards to be completed")
++	}
++
++	if response.RateLimitHits != 0 {
++		t.Errorf("Expected 0 rate limit hits, got %d", response.RateLimitHits)
++	}
++}
++
++func TestGetCardsWithRetry_NoFilterProvided(t *testing.T) {
++	client := NewClient("http://example.com", "test-api-key")
++	filter := GetCardsRequest{}
++	cfg := DefaultRetryConfig()
++
++	ctx := context.Background()
++	_, err := client.GetCardsWithRetry(ctx, filter, cfg, false)
++
++	if err == nil {
++		t.Fatal("Expected error when no filter is provided")
++	}
++
++	expectedMsg := "at least one filter parameter"
++	if !contains(err.Error(), expectedMsg) {
++		t.Errorf("Expected error to contain '%s', got %s", expectedMsg, err.Error())
++	}
++}
++
++func TestGetCardsWithRetry_RateLimitThenSuccess(t *testing.T) {
++	attemptCount := 0
++	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		if r.URL.Path == "/api/v2/cards" {
++			attemptCount++
++			if attemptCount == 1 {
++				// First attempt: return rate limit error
++				w.Header().Set("Retry-After", "1")
++				w.WriteHeader(http.StatusTooManyRequests)
++				w.Write([]byte(`{"error": "rate limit exceeded"}`))
++				return
++			}
++			// Second attempt: success
++			w.WriteHeader(http.StatusOK)
++			w.Write([]byte(`{
++				"data": {
++					"pagination": {
++						"all_pages": 1,
++						"current_page": 1,
++						"results_per_page": 200
++					},
++					"data": [
++						{
++							"card_id": 201,
++							"title": "Card After Retry",
++							"description": "Success",
++							"board_id": 5,
++							"lane_id": 50,
++							"workflow_id": 500
++						}
++					]
++				}
++			}`))
++		}
++	}))
++	defer server.Close()
++
++	client := NewClient(server.URL, "test-api-key")
++	filter := GetCardsRequest{
++		LaneIDs: []int{50, 51},
++	}
++	cfg := RetryConfig{
++		MaxAttempts:       5,
++		InitialDelay:      100 * time.Millisecond,
++		MaxDelay:          1 * time.Second,
++		Multiplier:        2.0,
++		RespectRetryAfter: true,
++		TotalWaitCap:      10 * time.Second,
++	}
++
++	ctx := context.Background()
++	response, err := client.GetCardsWithRetry(ctx, filter, cfg, false)
++
++	if err != nil {
++		t.Fatalf("Expected no error after retry, got %v", err)
++	}
++
++	if response.FilterUsed != "lane_ids" {
++		t.Errorf("Expected FilterUsed=lane_ids, got %s", response.FilterUsed)
++	}
++
++	if response.Attempts["cards"] != 2 {
++		t.Errorf("Expected 2 attempts, got %d", response.Attempts["cards"])
++	}
++
++	if response.RateLimitHits != 1 {
++		t.Errorf("Expected 1 rate limit hit, got %d", response.RateLimitHits)
++	}
++
++	if len(response.Cards) != 1 {
++		t.Fatalf("Expected 1 card, got %d", len(response.Cards))
++	}
++
++	if response.Cards[0].CardID != 201 {
++		t.Errorf("Expected card ID to be 201, got %d", response.Cards[0].CardID)
++	}
++}
++
++// Helper function for string contains
++func contains(s, substr string) bool {
++	return len(s) >= len(substr) && (s == substr || len(substr) == 0 ||
++		(len(s) > 0 && len(substr) > 0 && stringContains(s, substr)))
++}
++
++func stringContains(s, substr string) bool {
++	for i := 0; i <= len(s)-len(substr); i++ {
++		if s[i:i+len(substr)] == substr {
++			return true
++		}
+ 	}
++	return false
+ }
+diff --git a/internal/kanbanize/retry.go b/internal/kanbanize/retry.go
+new file mode 100644
+index 0000000..e75d55a
+--- /dev/null
++++ b/internal/kanbanize/retry.go
+@@ -0,0 +1,462 @@
++/*
++ * Copyright 2018-present HiveMQ and the HiveMQ Community
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package kanbanize
++
++import (
++	"context"
++	"encoding/json"
++	"fmt"
++	"log"
++	"math"
++	"math/rand"
++	"net/http"
++	"strconv"
++	"time"
++)
++
++// RetryConfig holds configuration for retry behavior
++type RetryConfig struct {
++	MaxAttempts       int
++	InitialDelay      time.Duration
++	MaxDelay          time.Duration
++	Multiplier        float64
++	RespectRetryAfter bool
++	TotalWaitCap      time.Duration
++}
++
++// DefaultRetryConfig returns sensible default retry configuration
++func DefaultRetryConfig() RetryConfig {
++	return RetryConfig{
++		MaxAttempts:       10,
++		InitialDelay:      5 * time.Second,
++		MaxDelay:          5 * time.Minute,
++		Multiplier:        2.0,
++		RespectRetryAfter: true,
++		TotalWaitCap:      20 * time.Minute,
++	}
++}
++
++// Validate checks if the retry configuration is valid
++func (rc *RetryConfig) Validate() error {
++	if rc.MaxAttempts < 1 {
++		return fmt.Errorf("MaxAttempts must be >= 1, got %d", rc.MaxAttempts)
++	}
++	if rc.Multiplier < 1.0 {
++		return fmt.Errorf("Multiplier must be >= 1.0, got %f", rc.Multiplier)
++	}
++	if rc.InitialDelay <= 0 {
++		return fmt.Errorf("InitialDelay must be > 0, got %v", rc.InitialDelay)
++	}
++	if rc.MaxDelay < rc.InitialDelay {
++		return fmt.Errorf("MaxDelay (%v) must be >= InitialDelay (%v)", rc.MaxDelay, rc.InitialDelay)
++	}
++	if rc.TotalWaitCap < rc.InitialDelay {
++		return fmt.Errorf("TotalWaitCap (%v) must be >= InitialDelay (%v)", rc.TotalWaitCap, rc.InitialDelay)
++	}
++	return nil
++}
++
++// parseRetryAfter parses the Retry-After header value
++// It supports both delay-seconds (integer) and HTTP-date formats
++func parseRetryAfter(retryAfterHeader string) time.Duration {
++	if retryAfterHeader == "" {
++		return 0
++	}
++
++	// Try parsing as integer (seconds)
++	if seconds, err := strconv.Atoi(retryAfterHeader); err == nil && seconds > 0 {
++		return time.Duration(seconds) * time.Second
++	}
++
++	// Try parsing as HTTP-date (RFC1123, RFC850, ANSI C formats)
++	formats := []string{
++		time.RFC1123,
++		time.RFC850,
++		time.ANSIC,
++		time.RFC3339,
++	}
++
++	for _, format := range formats {
++		if t, err := time.Parse(format, retryAfterHeader); err == nil {
++			duration := time.Until(t)
++			if duration > 0 {
++				return duration
++			}
++			return 0
++		}
++	}
++
++	return 0
++}
++
++// exponentialBackoffWithJitter calculates the backoff delay using full jitter
++// Returns the delay to wait before the next retry attempt
++func exponentialBackoffWithJitter(cfg RetryConfig, attempt int, retryAfter time.Duration) time.Duration {
++	// If Retry-After header is present and we respect it, use it
++	if retryAfter > 0 && cfg.RespectRetryAfter {
++		return retryAfter
++	}
++
++	// Calculate base delay with exponential backoff
++	base := cfg.InitialDelay
++	if attempt > 0 {
++		base = time.Duration(float64(cfg.InitialDelay) * math.Pow(cfg.Multiplier, float64(attempt)))
++	}
++
++	// Cap at max delay
++	if base > cfg.MaxDelay {
++		base = cfg.MaxDelay
++	}
++
++	// Apply full jitter: random value between 0 and base
++	maxNanos := base.Nanoseconds()
++	if maxNanos <= 0 {
++		return 0
++	}
++
++	jitteredNanos := rand.Int63n(maxNanos + 1)
++	return time.Duration(jitteredNanos)
++}
++
++// isRateLimitError checks if an error is a rate limit error
++func isRateLimitError(err error) (*RateLimitError, bool) {
++	if rateLimitErr, ok := err.(*RateLimitError); ok {
++		return rateLimitErr, true
++	}
++	return nil, false
++}
++
++// makeRequestWithRetry executes an HTTP request with retry logic for rate limits
++func (c *Client) makeRequestWithRetry(ctx context.Context, cfg RetryConfig, method, url string, body interface{}) ([]byte, error) {
++	if err := cfg.Validate(); err != nil {
++		return nil, fmt.Errorf("invalid retry config: %w", err)
++	}
++
++	var lastErr error
++	totalWaitTime := time.Duration(0)
++	startTime := time.Now()
++
++	for attempt := 0; attempt < cfg.MaxAttempts; attempt++ {
++		// Check context cancellation
++		select {
++		case <-ctx.Done():
++			return nil, fmt.Errorf("request canceled: %w", ctx.Err())
++		default:
++		}
++
++		// Attempt the request
++		result, err := c.makeAPIRequestWithBody(method, url, body)
++		if err == nil {
++			if attempt > 0 {
++				log.Printf("[RETRY] Success after %d attempts, total wait: %v", attempt+1, totalWaitTime)
++			}
++			return result, nil
++		}
++
++		// Check if it's a rate limit error
++		rateLimitErr, isRateLimit := isRateLimitError(err)
++		if !isRateLimit {
++			// Non-rate-limit error, fail fast
++			return nil, err
++		}
++
++		lastErr = err
++
++		// Check if we've exhausted attempts
++		if attempt >= cfg.MaxAttempts-1 {
++			log.Printf("[RETRY] Max attempts (%d) exceeded for %s", cfg.MaxAttempts, url)
++			return nil, fmt.Errorf("max retries exceeded: %w", lastErr)
++		}
++
++		// Calculate backoff delay
++		backoffDelay := exponentialBackoffWithJitter(cfg, attempt, rateLimitErr.RetryAfter)
++
++		// Check if waiting would exceed total wait cap
++		if totalWaitTime+backoffDelay > cfg.TotalWaitCap {
++			log.Printf("[RETRY] Would exceed total wait cap (%v), aborting", cfg.TotalWaitCap)
++			return nil, fmt.Errorf("total wait time would exceed cap (%v): %w", cfg.TotalWaitCap, lastErr)
++		}
++
++		// Log retry attempt
++		if rateLimitErr.RetryAfter > 0 {
++			log.Printf("[RETRY] Attempt %d/%d failed: rate limit hit (Retry-After: %v), waiting %v",
++				attempt+1, cfg.MaxAttempts, rateLimitErr.RetryAfter, backoffDelay)
++		} else {
++			log.Printf("[RETRY] Attempt %d/%d failed: rate limit hit, waiting %v",
++				attempt+1, cfg.MaxAttempts, backoffDelay)
++		}
++
++		// Wait with context awareness
++		select {
++		case <-ctx.Done():
++			return nil, fmt.Errorf("request canceled during backoff: %w", ctx.Err())
++		case <-time.After(backoffDelay):
++			totalWaitTime = time.Since(startTime)
++		}
++	}
++
++	return nil, fmt.Errorf("max retries exceeded: %w", lastErr)
++}
++
++// enhanceErrorWithRateLimit wraps HTTP errors to detect rate limiting
++func enhanceErrorWithRateLimit(resp *http.Response, originalErr error, body []byte) error {
++	if resp.StatusCode == http.StatusTooManyRequests {
++		retryAfter := parseRetryAfter(resp.Header.Get("Retry-After"))
++		return &RateLimitError{
++			StatusCode: resp.StatusCode,
++			RetryAfter: retryAfter,
++			RawBody:    string(body),
++		}
++	}
++	return originalErr
++}
++
++// endpointResult tracks the result of fetching a single endpoint
++type endpointResult struct {
++	name          string
++	data          []byte
++	attempts      int
++	rateLimitHits int
++	success       bool
++	err           error
++}
++
++// ReadCardWithRetry fetches card data with retry logic for rate limiting
++// It returns a structured response with metadata about retry attempts
++func (c *Client) ReadCardWithRetry(ctx context.Context, cardIDOrURL string, cfg RetryConfig, failOnPartial bool) (*ReadCardWithRetryResponse, error) {
++	cardID, err := c.extractCardID(cardIDOrURL)
++	if err != nil {
++		return nil, err
++	}
++
++	if err := cfg.Validate(); err != nil {
++		return nil, fmt.Errorf("invalid retry config: %w", err)
++	}
++
++	startTime := time.Now()
++	response := &ReadCardWithRetryResponse{
++		CardID:       cardID,
++		Attempts:     make(map[string]int),
++		Completed:    make(map[string]bool),
++		PartialError: make(map[string]string),
++		Data:         &ReadCardResponse{},
++	}
++
++	// Fetch primary card data (required)
++	cardResult := c.fetchWithRetry(ctx, cfg, "card", fmt.Sprintf("%s/api/v2/cards/%s", c.baseURL, cardID))
++	response.Attempts["card"] = cardResult.attempts
++	response.RateLimitHits += cardResult.rateLimitHits
++	response.Completed["card"] = cardResult.success
++
++	if !cardResult.success {
++		response.PartialError["card"] = cardResult.err.Error()
++		response.WaitSeconds = time.Since(startTime).Seconds()
++		return response, fmt.Errorf("failed to fetch card: %w", cardResult.err)
++	}
++
++	// Parse card data
++	var cardDataResp CardDataResponse
++	if err := json.Unmarshal(cardResult.data, &cardDataResp); err != nil {
++		return response, fmt.Errorf("failed to parse card data: %w", err)
++	}
++
++	// Populate basic card fields
++	response.Data.Title = cardDataResp.Data.Title
++	response.Data.Description = cardDataResp.Data.Description
++	response.Data.LinkedCards = cardDataResp.Data.LinkedCards
++	response.Data.CustomFields = cardDataResp.Data.CustomFields
++	response.Data.CreatedAt = parseTimestamp(cardDataResp.Data.CreatedAt)
++	response.Data.LastModified = parseTimestamp(cardDataResp.Data.LastModified)
++	response.Data.InCurrentPositionSince = parseTimestamp(cardDataResp.Data.InCurrentPositionSince)
++	response.Data.FirstRequestTime = parseTimestamp(cardDataResp.Data.FirstRequestTime)
++	response.Data.FirstStartTime = parseTimestamp(cardDataResp.Data.FirstStartTime)
++	response.Data.FirstEndTime = parseTimestamp(cardDataResp.Data.FirstEndTime)
++	response.Data.LastRequestTime = parseTimestamp(cardDataResp.Data.LastRequestTime)
++	response.Data.LastStartTime = parseTimestamp(cardDataResp.Data.LastStartTime)
++	response.Data.LastEndTime = parseTimestamp(cardDataResp.Data.LastEndTime)
++
++	// Parse initiative details if present
++	if cardDataResp.Data.InitiativeDetails != nil {
++		response.Data.PlannedStartDate = cardDataResp.Data.InitiativeDetails.PlannedStartDate
++		response.Data.PlannedEndDate = cardDataResp.Data.InitiativeDetails.PlannedEndDate
++		response.Data.ActualStartTime = parseTimestamp(cardDataResp.Data.InitiativeDetails.ActualStartTime)
++		response.Data.ActualEndTime = parseTimestamp(cardDataResp.Data.InitiativeDetails.ActualEndTime)
++	}
++
++	// Fetch comments and subtasks in parallel (secondary endpoints)
++	type fetchResult struct {
++		name   string
++		result *endpointResult
++		data   []byte
++	}
++
++	resultsChan := make(chan fetchResult, 2)
++
++	// Fetch comments
++	go func() {
++		result := c.fetchWithRetry(ctx, cfg, "comments", fmt.Sprintf("%s/api/v2/cards/%s/comments", c.baseURL, cardID))
++		resultsChan <- fetchResult{name: "comments", result: result, data: result.data}
++	}()
++
++	// Fetch subtasks
++	go func() {
++		result := c.fetchWithRetry(ctx, cfg, "subtasks", fmt.Sprintf("%s/api/v2/cards/%s/subtasks", c.baseURL, cardID))
++		resultsChan <- fetchResult{name: "subtasks", result: result, data: result.data}
++	}()
++
++	// Collect results
++	for i := 0; i < 2; i++ {
++		select {
++		case <-ctx.Done():
++			return response, fmt.Errorf("context canceled: %w", ctx.Err())
++		case result := <-resultsChan:
++			response.Attempts[result.name] = result.result.attempts
++			response.RateLimitHits += result.result.rateLimitHits
++			response.Completed[result.name] = result.result.success
++
++			if !result.result.success {
++				response.PartialError[result.name] = result.result.err.Error()
++				if failOnPartial {
++					response.WaitSeconds = time.Since(startTime).Seconds()
++					return response, fmt.Errorf("failed to fetch %s: %w", result.name, result.result.err)
++				}
++			} else {
++				// Parse successful results
++				if result.name == "comments" {
++					var commentsResp CommentsResponse
++					if err := json.Unmarshal(result.data, &commentsResp); err == nil {
++						comments := make([]Comment, len(commentsResp.Data))
++						for i, commentData := range commentsResp.Data {
++							comments[i] = Comment{
++								ID:        strconv.Itoa(commentData.CommentID),
++								Text:      commentData.Text,
++								Author:    commentData.AuthorName,
++								CreatedAt: parseCommentTimestamp(commentData.CreatedAt),
++							}
++						}
++						response.Data.Comments = comments
++					}
++				} else if result.name == "subtasks" {
++					var subtasksResp SubtasksResponse
++					if err := json.Unmarshal(result.data, &subtasksResp); err == nil {
++						subtasks := make([]Subtask, len(subtasksResp.Data))
++						for i, subtaskData := range subtasksResp.Data {
++							subtasks[i] = Subtask{
++								ID:          strconv.Itoa(subtaskData.SubtaskID),
++								Title:       subtaskData.Title,
++								Description: subtaskData.Description,
++								Completed:   subtaskData.Finished == 1,
++							}
++						}
++						response.Data.Subtasks = subtasks
++					}
++				}
++			}
++		}
++	}
++
++	response.WaitSeconds = time.Since(startTime).Seconds()
++	return response, nil
++}
++
++// fetchWithRetry is a helper that wraps makeRequestWithRetry with result tracking
++func (c *Client) fetchWithRetry(ctx context.Context, cfg RetryConfig, name, url string) *endpointResult {
++	result := &endpointResult{
++		name:     name,
++		attempts: 0,
++	}
++
++	var lastErr error
++	totalWaitTime := time.Duration(0)
++	startTime := time.Now()
++
++	for attempt := 0; attempt < cfg.MaxAttempts; attempt++ {
++		result.attempts = attempt + 1
++
++		// Check context cancellation
++		select {
++		case <-ctx.Done():
++			result.err = fmt.Errorf("request canceled: %w", ctx.Err())
++			return result
++		default:
++		}
++
++		// Attempt the request
++		data, err := c.makeAPIRequest(url)
++		if err == nil {
++			result.success = true
++			result.data = data
++			if attempt > 0 {
++				log.Printf("[RETRY] Success for %s after %d attempts, total wait: %v", name, attempt+1, totalWaitTime)
++			}
++			return result
++		}
++
++		// Check if it's a rate limit error
++		_, isRateLimit := isRateLimitError(err)
++		if isRateLimit {
++			result.rateLimitHits++
++		}
++
++		if !isRateLimit {
++			// Non-rate-limit error, fail fast
++			result.err = err
++			return result
++		}
++
++		lastErr = err
++
++		// Check if we've exhausted attempts
++		if attempt >= cfg.MaxAttempts-1 {
++			log.Printf("[RETRY] Max attempts (%d) exceeded for %s", cfg.MaxAttempts, name)
++			result.err = fmt.Errorf("max retries exceeded: %w", lastErr)
++			return result
++		}
++
++		// Calculate backoff delay
++		rateLimitErr, _ := isRateLimitError(err)
++		backoffDelay := exponentialBackoffWithJitter(cfg, attempt, rateLimitErr.RetryAfter)
++
++		// Check if waiting would exceed total wait cap
++		if totalWaitTime+backoffDelay > cfg.TotalWaitCap {
++			log.Printf("[RETRY] Would exceed total wait cap (%v) for %s, aborting", cfg.TotalWaitCap, name)
++			result.err = fmt.Errorf("total wait time would exceed cap (%v): %w", cfg.TotalWaitCap, lastErr)
++			return result
++		}
++
++		// Log retry attempt
++		if rateLimitErr.RetryAfter > 0 {
++			log.Printf("[RETRY] %s attempt %d/%d failed: rate limit hit (Retry-After: %v), waiting %v",
++				name, attempt+1, cfg.MaxAttempts, rateLimitErr.RetryAfter, backoffDelay)
++		} else {
++			log.Printf("[RETRY] %s attempt %d/%d failed: rate limit hit, waiting %v",
++				name, attempt+1, cfg.MaxAttempts, backoffDelay)
++		}
++
++		// Wait with context awareness
++		select {
++		case <-ctx.Done():
++			result.err = fmt.Errorf("request canceled during backoff: %w", ctx.Err())
++			return result
++		case <-time.After(backoffDelay):
++			totalWaitTime = time.Since(startTime)
++		}
++	}
++
++	result.err = fmt.Errorf("max retries exceeded: %w", lastErr)
++	return result
++}
+diff --git a/internal/kanbanize/retry_test.go b/internal/kanbanize/retry_test.go
+new file mode 100644
+index 0000000..888239f
+--- /dev/null
++++ b/internal/kanbanize/retry_test.go
+@@ -0,0 +1,456 @@
++/*
++ * Copyright 2018-present HiveMQ and the HiveMQ Community
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package kanbanize
++
++import (
++	"context"
++	"encoding/json"
++	"net/http"
++	"net/http/httptest"
++	"strings"
++	"testing"
++	"time"
++)
++
++func TestParseRetryAfter_Seconds(t *testing.T) {
++	tests := []struct {
++		name     string
++		header   string
++		expected time.Duration
++	}{
++		{"valid seconds", "60", 60 * time.Second},
++		{"zero seconds", "0", 0},
++		{"negative seconds", "-10", 0},
++		{"empty string", "", 0},
++		{"invalid string", "abc", 0},
++	}
++
++	for _, tt := range tests {
++		t.Run(tt.name, func(t *testing.T) {
++			result := parseRetryAfter(tt.header)
++			if result != tt.expected {
++				t.Errorf("parseRetryAfter(%q) = %v, want %v", tt.header, result, tt.expected)
++			}
++		})
++	}
++}
++
++func TestParseRetryAfter_HTTPDate(t *testing.T) {
++	// Test with a future time (5 seconds from now)
++	future := time.Now().Add(5 * time.Second)
++	httpDate := future.Format(time.RFC1123)
++
++	result := parseRetryAfter(httpDate)
++
++	// Allow 1 second tolerance for test execution time
++	if result < 4*time.Second || result > 6*time.Second {
++		t.Errorf("parseRetryAfter(%q) = %v, expected ~5s", httpDate, result)
++	}
++}
++
++func TestRetryConfigValidate(t *testing.T) {
++	tests := []struct {
++		name      string
++		config    RetryConfig
++		expectErr bool
++	}{
++		{
++			name:      "valid config",
++			config:    DefaultRetryConfig(),
++			expectErr: false,
++		},
++		{
++			name: "invalid max attempts",
++			config: RetryConfig{
++				MaxAttempts:  0,
++				InitialDelay: 1 * time.Second,
++				MaxDelay:     5 * time.Second,
++				Multiplier:   2.0,
++				TotalWaitCap: 10 * time.Second,
++			},
++			expectErr: true,
++		},
++		{
++			name: "invalid multiplier",
++			config: RetryConfig{
++				MaxAttempts:  3,
++				InitialDelay: 1 * time.Second,
++				MaxDelay:     5 * time.Second,
++				Multiplier:   0.5,
++				TotalWaitCap: 10 * time.Second,
++			},
++			expectErr: true,
++		},
++		{
++			name: "invalid initial delay",
++			config: RetryConfig{
++				MaxAttempts:  3,
++				InitialDelay: 0,
++				MaxDelay:     5 * time.Second,
++				Multiplier:   2.0,
++				TotalWaitCap: 10 * time.Second,
++			},
++			expectErr: true,
++		},
++		{
++			name: "max delay less than initial",
++			config: RetryConfig{
++				MaxAttempts:  3,
++				InitialDelay: 10 * time.Second,
++				MaxDelay:     5 * time.Second,
++				Multiplier:   2.0,
++				TotalWaitCap: 20 * time.Second,
++			},
++			expectErr: true,
++		},
++	}
++
++	for _, tt := range tests {
++		t.Run(tt.name, func(t *testing.T) {
++			err := tt.config.Validate()
++			if (err != nil) != tt.expectErr {
++				t.Errorf("Validate() error = %v, expectErr %v", err, tt.expectErr)
++			}
++		})
++	}
++}
++
++func TestExponentialBackoffWithJitter(t *testing.T) {
++	cfg := RetryConfig{
++		InitialDelay: 1 * time.Second,
++		MaxDelay:     10 * time.Second,
++		Multiplier:   2.0,
++	}
++
++	tests := []struct {
++		name       string
++		attempt    int
++		retryAfter time.Duration
++		minExpect  time.Duration
++		maxExpect  time.Duration
++	}{
++		{"attempt 0", 0, 0, 0, 1 * time.Second},
++		{"attempt 1", 1, 0, 0, 2 * time.Second},
++		{"attempt 2", 2, 0, 0, 4 * time.Second},
++		{"attempt 3 capped", 3, 0, 0, 8 * time.Second},
++		{"attempt 4 capped at max", 4, 0, 0, 10 * time.Second},
++	}
++
++	for _, tt := range tests {
++		t.Run(tt.name, func(t *testing.T) {
++			// Run multiple times due to randomness
++			for i := 0; i < 10; i++ {
++				result := exponentialBackoffWithJitter(cfg, tt.attempt, tt.retryAfter)
++				if result < tt.minExpect || result > tt.maxExpect {
++					t.Errorf("exponentialBackoffWithJitter() = %v, want between %v and %v",
++						result, tt.minExpect, tt.maxExpect)
++				}
++			}
++		})
++	}
++}
++
++func TestExponentialBackoffWithJitter_RetryAfterPriority(t *testing.T) {
++	cfg := RetryConfig{
++		InitialDelay:      1 * time.Second,
++		MaxDelay:          10 * time.Second,
++		Multiplier:        2.0,
++		RespectRetryAfter: true,
++	}
++
++	retryAfter := 15 * time.Second
++	result := exponentialBackoffWithJitter(cfg, 0, retryAfter)
++
++	if result != retryAfter {
++		t.Errorf("exponentialBackoffWithJitter() with Retry-After = %v, want %v", result, retryAfter)
++	}
++}
++
++func TestReadCardWithRetry_Success(t *testing.T) {
++	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		if strings.Contains(r.URL.Path, "/cards/1001") && !strings.Contains(r.URL.Path, "/comments") && !strings.Contains(r.URL.Path, "/subtasks") {
++			response := CardDataResponse{
++				Data: CardData{
++					CardID:      1001,
++					Title:       "Test Card",
++					Description: "Test Description",
++				},
++			}
++			w.Header().Set("Content-Type", "application/json")
++			json.NewEncoder(w).Encode(response)
++		} else if strings.Contains(r.URL.Path, "/comments") {
++			w.Header().Set("Content-Type", "application/json")
++			json.NewEncoder(w).Encode(CommentsResponse{Data: []CommentData{}})
++		} else if strings.Contains(r.URL.Path, "/subtasks") {
++			w.Header().Set("Content-Type", "application/json")
++			json.NewEncoder(w).Encode(SubtasksResponse{Data: []SubtaskData{}})
++		}
++	}))
++	defer server.Close()
++
++	client := NewClient(server.URL, "test-api-key")
++	cfg := RetryConfig{
++		MaxAttempts:  3,
++		InitialDelay: 100 * time.Millisecond,
++		MaxDelay:     1 * time.Second,
++		Multiplier:   2.0,
++		TotalWaitCap: 5 * time.Second,
++	}
++
++	ctx := context.Background()
++	response, err := client.ReadCardWithRetry(ctx, "1001", cfg, false)
++
++	if err != nil {
++		t.Fatalf("Expected no error, got %v", err)
++	}
++
++	if response.Data.Title != "Test Card" {
++		t.Errorf("Expected title 'Test Card', got '%s'", response.Data.Title)
++	}
++
++	if response.Attempts["card"] != 1 {
++		t.Errorf("Expected 1 attempt for card, got %d", response.Attempts["card"])
++	}
++
++	if response.RateLimitHits != 0 {
++		t.Errorf("Expected 0 rate limit hits, got %d", response.RateLimitHits)
++	}
++
++	if !response.Completed["card"] {
++		t.Error("Expected card to be completed")
++	}
++}
++
++func TestReadCardWithRetry_RateLimitThenSuccess(t *testing.T) {
++	attemptCount := 0
++	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		if strings.Contains(r.URL.Path, "/cards/1001") && !strings.Contains(r.URL.Path, "/comments") && !strings.Contains(r.URL.Path, "/subtasks") {
++			attemptCount++
++			if attemptCount < 2 {
++				// First attempt: return 429
++				w.Header().Set("Retry-After", "1")
++				w.WriteHeader(http.StatusTooManyRequests)
++				json.NewEncoder(w).Encode(map[string]string{"error": "rate limited"})
++			} else {
++				// Second attempt: success
++				response := CardDataResponse{
++					Data: CardData{
++						CardID:      1001,
++						Title:       "Test Card",
++						Description: "Test Description",
++					},
++				}
++				w.Header().Set("Content-Type", "application/json")
++				json.NewEncoder(w).Encode(response)
++			}
++		} else if strings.Contains(r.URL.Path, "/comments") {
++			w.Header().Set("Content-Type", "application/json")
++			json.NewEncoder(w).Encode(CommentsResponse{Data: []CommentData{}})
++		} else if strings.Contains(r.URL.Path, "/subtasks") {
++			w.Header().Set("Content-Type", "application/json")
++			json.NewEncoder(w).Encode(SubtasksResponse{Data: []SubtaskData{}})
++		}
++	}))
++	defer server.Close()
++
++	client := NewClient(server.URL, "test-api-key")
++	cfg := RetryConfig{
++		MaxAttempts:       5,
++		InitialDelay:      100 * time.Millisecond,
++		MaxDelay:          1 * time.Second,
++		Multiplier:        2.0,
++		RespectRetryAfter: true,
++		TotalWaitCap:      10 * time.Second,
++	}
++
++	ctx := context.Background()
++	response, err := client.ReadCardWithRetry(ctx, "1001", cfg, false)
++
++	if err != nil {
++		t.Fatalf("Expected no error, got %v", err)
++	}
++
++	if response.Data.Title != "Test Card" {
++		t.Errorf("Expected title 'Test Card', got '%s'", response.Data.Title)
++	}
++
++	if response.Attempts["card"] != 2 {
++		t.Errorf("Expected 2 attempts for card, got %d", response.Attempts["card"])
++	}
++
++	if response.RateLimitHits != 1 {
++		t.Errorf("Expected 1 rate limit hit, got %d", response.RateLimitHits)
++	}
++
++	if !response.Completed["card"] {
++		t.Error("Expected card to be completed")
++	}
++}
++
++func TestReadCardWithRetry_MaxRetriesExceeded(t *testing.T) {
++	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		// Always return 429
++		w.Header().Set("Retry-After", "1")
++		w.WriteHeader(http.StatusTooManyRequests)
++		json.NewEncoder(w).Encode(map[string]string{"error": "rate limited"})
++	}))
++	defer server.Close()
++
++	client := NewClient(server.URL, "test-api-key")
++	cfg := RetryConfig{
++		MaxAttempts:       3,
++		InitialDelay:      50 * time.Millisecond,
++		MaxDelay:          200 * time.Millisecond,
++		Multiplier:        2.0,
++		RespectRetryAfter: false, // Don't respect to speed up test
++		TotalWaitCap:      5 * time.Second,
++	}
++
++	ctx := context.Background()
++	response, err := client.ReadCardWithRetry(ctx, "1001", cfg, false)
++
++	if err == nil {
++		t.Fatal("Expected error, got nil")
++	}
++
++	if !strings.Contains(err.Error(), "max retries exceeded") {
++		t.Errorf("Expected 'max retries exceeded' error, got: %v", err)
++	}
++
++	if response.Attempts["card"] != 3 {
++		t.Errorf("Expected 3 attempts for card, got %d", response.Attempts["card"])
++	}
++
++	if response.RateLimitHits != 3 {
++		t.Errorf("Expected 3 rate limit hits, got %d", response.RateLimitHits)
++	}
++
++	if response.Completed["card"] {
++		t.Error("Expected card not to be completed")
++	}
++}
++
++func TestReadCardWithRetry_PartialResults(t *testing.T) {
++	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		if strings.Contains(r.URL.Path, "/cards/1001") && !strings.Contains(r.URL.Path, "/comments") && !strings.Contains(r.URL.Path, "/subtasks") {
++			response := CardDataResponse{
++				Data: CardData{
++					CardID:      1001,
++					Title:       "Test Card",
++					Description: "Test Description",
++				},
++			}
++			w.Header().Set("Content-Type", "application/json")
++			json.NewEncoder(w).Encode(response)
++		} else if strings.Contains(r.URL.Path, "/comments") {
++			// Comments endpoint always fails with 429
++			w.WriteHeader(http.StatusTooManyRequests)
++			json.NewEncoder(w).Encode(map[string]string{"error": "rate limited"})
++		} else if strings.Contains(r.URL.Path, "/subtasks") {
++			w.Header().Set("Content-Type", "application/json")
++			json.NewEncoder(w).Encode(SubtasksResponse{Data: []SubtaskData{}})
++		}
++	}))
++	defer server.Close()
++
++	client := NewClient(server.URL, "test-api-key")
++	cfg := RetryConfig{
++		MaxAttempts:  2,
++		InitialDelay: 50 * time.Millisecond,
++		MaxDelay:     200 * time.Millisecond,
++		Multiplier:   2.0,
++		TotalWaitCap: 2 * time.Second,
++	}
++
++	ctx := context.Background()
++	response, err := client.ReadCardWithRetry(ctx, "1001", cfg, false)
++
++	// Should succeed with partial results
++	if err != nil {
++		t.Fatalf("Expected no error with partial results, got %v", err)
++	}
++
++	if response.Data.Title != "Test Card" {
++		t.Errorf("Expected title 'Test Card', got '%s'", response.Data.Title)
++	}
++
++	if response.Completed["card"] != true {
++		t.Error("Expected card to be completed")
++	}
++
++	if response.Completed["comments"] != false {
++		t.Error("Expected comments not to be completed")
++	}
++
++	if response.PartialError["comments"] == "" {
++		t.Error("Expected partial error for comments")
++	}
++
++	if response.Completed["subtasks"] != true {
++		t.Error("Expected subtasks to be completed")
++	}
++}
++
++func TestReadCardWithRetry_FailOnPartial(t *testing.T) {
++	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		if strings.Contains(r.URL.Path, "/cards/1001") && !strings.Contains(r.URL.Path, "/comments") && !strings.Contains(r.URL.Path, "/subtasks") {
++			response := CardDataResponse{
++				Data: CardData{
++					CardID:      1001,
++					Title:       "Test Card",
++					Description: "Test Description",
++				},
++			}
++			w.Header().Set("Content-Type", "application/json")
++			json.NewEncoder(w).Encode(response)
++		} else if strings.Contains(r.URL.Path, "/comments") {
++			// Comments endpoint always fails
++			w.WriteHeader(http.StatusTooManyRequests)
++			json.NewEncoder(w).Encode(map[string]string{"error": "rate limited"})
++		} else if strings.Contains(r.URL.Path, "/subtasks") {
++			w.Header().Set("Content-Type", "application/json")
++			json.NewEncoder(w).Encode(SubtasksResponse{Data: []SubtaskData{}})
++		}
++	}))
++	defer server.Close()
++
++	client := NewClient(server.URL, "test-api-key")
++	cfg := RetryConfig{
++		MaxAttempts:  2,
++		InitialDelay: 50 * time.Millisecond,
++		MaxDelay:     200 * time.Millisecond,
++		Multiplier:   2.0,
++		TotalWaitCap: 2 * time.Second,
++	}
++
++	ctx := context.Background()
++	response, err := client.ReadCardWithRetry(ctx, "1001", cfg, true) // fail_on_partial = true
++
++	// Should fail
++	if err == nil {
++		t.Fatal("Expected error with fail_on_partial=true, got nil")
++	}
++
++	if !strings.Contains(err.Error(), "failed to fetch") {
++		t.Errorf("Expected 'failed to fetch' error, got: %v", err)
++	}
++
++	// Response should still have partial data
++	if response.Data.Title != "Test Card" {
++		t.Errorf("Expected partial data with title 'Test Card', got '%s'", response.Data.Title)
++	}
++}
+diff --git a/internal/kanbanize/types.go b/internal/kanbanize/types.go
+index 282efd4..d432b28 100644
+--- a/internal/kanbanize/types.go
++++ b/internal/kanbanize/types.go
+@@ -17,6 +17,7 @@
+ package kanbanize
+ 
+ import (
++	"fmt"
+ 	"time"
+ )
+ 
+@@ -25,6 +26,20 @@ type APIError struct {
+ 	Code    int    `json:"code"`
+ }
+ 
++// RateLimitError represents an HTTP 429 rate limit error with retry information
++type RateLimitError struct {
++	StatusCode int
++	RetryAfter time.Duration // parsed from Retry-After header (seconds or HTTP-date)
++	RawBody    string        // original body for diagnostics
++}
++
++func (e *RateLimitError) Error() string {
++	if e.RetryAfter > 0 {
++		return fmt.Sprintf("rate limit exceeded (HTTP %d): retry after %v", e.StatusCode, e.RetryAfter)
++	}
++	return fmt.Sprintf("rate limit exceeded (HTTP %d)", e.StatusCode)
++}
++
+ type ReadCardResponse struct {
+ 	Title                  string        `json:"title"`
+ 	Description            string        `json:"description"`
+@@ -139,3 +154,65 @@ type AddCommentData struct {
+ 	AuthorName  string `json:"author_name"`
+ 	CreatedDate string `json:"created_date"`
+ }
++
++// ReadCardWithRetryResponse wraps the card data with retry metadata
++type ReadCardWithRetryResponse struct {
++	CardID         string                    `json:"card_id"`
++	Attempts       map[string]int            `json:"attempts"`
++	WaitSeconds    float64                   `json:"wait_seconds"`
++	RateLimitHits  int                       `json:"rate_limit_hits"`
++	Completed      map[string]bool           `json:"completed"`
++	PartialError   map[string]string         `json:"partial_error,omitempty"`
++	Data           *ReadCardResponse         `json:"data"`
++}
++
++// GetCardsRequest represents query parameters for filtering multiple cards
++type GetCardsRequest struct {
++	BoardIDs    []int `json:"board_ids,omitempty"`
++	LaneIDs     []int `json:"lane_ids,omitempty"`
++	WorkflowIDs []int `json:"workflow_ids,omitempty"`
++	CardIDs     []int `json:"card_ids,omitempty"`
++}
++
++// CardSummary represents a summary of card data (lighter than ReadCardResponse)
++type CardSummary struct {
++	CardID       int           `json:"card_id"`
++	Title        string        `json:"title"`
++	Description  string        `json:"description"`
++	BoardID      int           `json:"board_id"`
++	LaneID       int           `json:"lane_id"`
++	WorkflowID   int           `json:"workflow_id"`
++	CustomFields []CustomField `json:"custom_fields,omitempty"`
++	LinkedCards  []LinkedCard  `json:"linked_cards,omitempty"`
++}
++
++// GetCardsResponse represents the API response for querying multiple cards
++// The API returns data with nested structure: data.pagination and data.data
++type GetCardsResponse struct {
++	Data GetCardsDataWrapper `json:"data"`
++}
++
++// GetCardsDataWrapper contains pagination info and the actual cards array
++type GetCardsDataWrapper struct {
++	Pagination GetCardsPagination `json:"pagination"`
++	Data       []CardSummary      `json:"data"`
++}
++
++// GetCardsPagination contains pagination information for the cards response
++type GetCardsPagination struct {
++	AllPages       int `json:"all_pages"`
++	CurrentPage    int `json:"current_page"`
++	ResultsPerPage int `json:"results_per_page"`
++}
++
++// GetCardsWithRetryResponse wraps the cards data with retry metadata
++type GetCardsWithRetryResponse struct {
++	FilterUsed    string            `json:"filter_used"`
++	FilterValues  []int             `json:"filter_values"`
++	Attempts      map[string]int    `json:"attempts"`
++	WaitSeconds   float64           `json:"wait_seconds"`
++	RateLimitHits int               `json:"rate_limit_hits"`
++	Completed     map[string]bool   `json:"completed"`
++	PartialError  map[string]string `json:"partial_error,omitempty"`
++	Cards         []CardSummary     `json:"cards"`
++}
+diff --git a/main.go b/main.go
+index 59461d8..10b14eb 100644
+--- a/main.go
++++ b/main.go
+@@ -24,7 +24,9 @@ import (
+ 	"fmt"
+ 	"log"
+ 	"os"
++	"strconv"
+ 	"strings"
++	"time"
+ 
+ 	"github.com/joho/godotenv"
+ 	"github.com/mark3labs/mcp-go/mcp"
+@@ -126,7 +128,236 @@ func main() {
+ 		return mcp.NewToolResultText("Comment added successfully"), nil
+ 	})
+ 
++	readCardWithRetryTool := mcp.NewTool("read_card_with_retry",
++		mcp.WithDescription("Fetches a card and optionally comments/subtasks using exponential full-jitter backoff with respect for Retry-After headers. Returns structured envelope including attempts, wait time, and partial errors when enabled."),
++		mcp.WithString("card_id",
++			mcp.Required(),
++			mcp.Description("The ID of the Kanbanize card to read or full card URL"),
++		),
++		mcp.WithNumber("max_attempts",
++			mcp.Description("Upper bound attempts per endpoint (default: 10)"),
++		),
++		mcp.WithNumber("initial_delay_ms",
++			mcp.Description("Initial backoff in milliseconds (default: 5000)"),
++		),
++		mcp.WithNumber("max_delay_ms",
++			mcp.Description("Max single delay in milliseconds (default: 300000 = 5 min)"),
++		),
++		mcp.WithNumber("multiplier",
++			mcp.Description("Exponential growth factor (default: 2.0)"),
++		),
++		mcp.WithBoolean("respect_retry_after",
++			mcp.Description("Honor server Retry-After header if present (default: true)"),
++		),
++		mcp.WithNumber("total_wait_cap_ms",
++			mcp.Description("Global time cap in milliseconds (default: 1200000 = 20 min)"),
++		),
++		mcp.WithBoolean("fail_on_partial",
++			mcp.Description("If true, abort when secondary endpoints fail (default: false)"),
++		),
++	)
++
++	mcpServer.AddTool(readCardWithRetryTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
++		cardID := mcp.ParseString(request, "card_id", "")
++		if cardID == "" {
++			return mcp.NewToolResultError("card_id parameter is required"), nil
++		}
++
++		// Build retry config with defaults
++		retryConfig := kanbanize.DefaultRetryConfig()
++
++		// Override with provided parameters
++		if maxAttempts := mcp.ParseFloat64(request, "max_attempts", 0); maxAttempts > 0 {
++			retryConfig.MaxAttempts = int(maxAttempts)
++		}
++		if initialDelayMs := mcp.ParseFloat64(request, "initial_delay_ms", 0); initialDelayMs > 0 {
++			retryConfig.InitialDelay = time.Duration(initialDelayMs) * time.Millisecond
++		}
++		if maxDelayMs := mcp.ParseFloat64(request, "max_delay_ms", 0); maxDelayMs > 0 {
++			retryConfig.MaxDelay = time.Duration(maxDelayMs) * time.Millisecond
++		}
++		if multiplier := mcp.ParseFloat64(request, "multiplier", 0); multiplier > 0 {
++			retryConfig.Multiplier = multiplier
++		}
++		if totalWaitCapMs := mcp.ParseFloat64(request, "total_wait_cap_ms", 0); totalWaitCapMs > 0 {
++			retryConfig.TotalWaitCap = time.Duration(totalWaitCapMs) * time.Millisecond
++		}
++
++		// Parse boolean parameters
++		retryConfig.RespectRetryAfter = mcp.ParseBoolean(request, "respect_retry_after", true)
++		failOnPartial := mcp.ParseBoolean(request, "fail_on_partial", false)
++
++		// Execute with retry
++		cardData, err := client.ReadCardWithRetry(ctx, cardID, retryConfig, failOnPartial)
++		if err != nil {
++			// Return partial results if available
++			if cardData != nil {
++				cardJSON, _ := json.Marshal(cardData)
++				return mcp.NewToolResultError(fmt.Sprintf("Partial failure: %s\n\nPartial data:\n%s", err.Error(), string(cardJSON))), nil
++			}
++			return mcp.NewToolResultError("Failed to read card: "+err.Error()), nil
++		}
++
++		cardJSON, err := json.Marshal(cardData)
++		if err != nil {
++			return mcp.NewToolResultError("Failed to serialize card data: "+err.Error()), nil
++		}
++
++		return mcp.NewToolResultText(string(cardJSON)), nil
++	})
++
++	getCardsWithRetryTool := mcp.NewTool("get_cards_with_retry",
++		mcp.WithDescription("Query multiple cards using filter criteria with exponential backoff retry logic. Returns cards matching the specified filters (board_ids, lane_ids, workflow_ids, or card_ids)."),
++		mcp.WithString("board_ids",
++			mcp.Description("Comma-separated board IDs to filter by (e.g., \"1,2,3\")"),
++		),
++		mcp.WithString("lane_ids",
++			mcp.Description("Comma-separated lane IDs to filter by (e.g., \"4,5,6\")"),
++		),
++		mcp.WithString("workflow_ids",
++			mcp.Description("Comma-separated workflow IDs to filter by (e.g., \"7,8,9\")"),
++		),
++		mcp.WithString("card_ids",
++			mcp.Description("Comma-separated card IDs to filter by (e.g., \"10,11,12\")"),
++		),
++		mcp.WithNumber("max_attempts",
++			mcp.Description("Upper bound attempts per endpoint (default: 10)"),
++		),
++		mcp.WithNumber("initial_delay_ms",
++			mcp.Description("Initial backoff in milliseconds (default: 5000)"),
++		),
++		mcp.WithNumber("max_delay_ms",
++			mcp.Description("Max single delay in milliseconds (default: 300000 = 5 min)"),
++		),
++		mcp.WithNumber("multiplier",
++			mcp.Description("Exponential growth factor (default: 2.0)"),
++		),
++		mcp.WithBoolean("respect_retry_after",
++			mcp.Description("Honor server Retry-After header if present (default: true)"),
++		),
++		mcp.WithNumber("total_wait_cap_ms",
++			mcp.Description("Global time cap in milliseconds (default: 1200000 = 20 min)"),
++		),
++		mcp.WithBoolean("fail_on_partial",
++			mcp.Description("If true, abort when secondary endpoints fail (default: false)"),
++		),
++	)
++
++	mcpServer.AddTool(getCardsWithRetryTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
++		// Parse filter parameters
++		filter := kanbanize.GetCardsRequest{}
++
++		boardIDsStr := mcp.ParseString(request, "board_ids", "")
++		if boardIDsStr != "" {
++			ids, err := parseIntArray(boardIDsStr)
++			if err != nil {
++				return mcp.NewToolResultError("Invalid board_ids format: " + err.Error()), nil
++			}
++			filter.BoardIDs = ids
++		}
++
++		laneIDsStr := mcp.ParseString(request, "lane_ids", "")
++		if laneIDsStr != "" {
++			ids, err := parseIntArray(laneIDsStr)
++			if err != nil {
++				return mcp.NewToolResultError("Invalid lane_ids format: " + err.Error()), nil
++			}
++			filter.LaneIDs = ids
++		}
++
++		workflowIDsStr := mcp.ParseString(request, "workflow_ids", "")
++		if workflowIDsStr != "" {
++			ids, err := parseIntArray(workflowIDsStr)
++			if err != nil {
++				return mcp.NewToolResultError("Invalid workflow_ids format: " + err.Error()), nil
++			}
++			filter.WorkflowIDs = ids
++		}
++
++		cardIDsStr := mcp.ParseString(request, "card_ids", "")
++		if cardIDsStr != "" {
++			ids, err := parseIntArray(cardIDsStr)
++			if err != nil {
++				return mcp.NewToolResultError("Invalid card_ids format: " + err.Error()), nil
++			}
++			filter.CardIDs = ids
++		}
++
++		// Validate at least one filter is provided
++		if len(filter.BoardIDs) == 0 && len(filter.LaneIDs) == 0 &&
++		   len(filter.WorkflowIDs) == 0 && len(filter.CardIDs) == 0 {
++			return mcp.NewToolResultError("At least one filter parameter (board_ids, lane_ids, workflow_ids, or card_ids) must be provided"), nil
++		}
++
++		// Build retry config with defaults
++		retryConfig := kanbanize.DefaultRetryConfig()
++
++		// Override with provided parameters
++		if maxAttempts := mcp.ParseFloat64(request, "max_attempts", 0); maxAttempts > 0 {
++			retryConfig.MaxAttempts = int(maxAttempts)
++		}
++		if initialDelayMs := mcp.ParseFloat64(request, "initial_delay_ms", 0); initialDelayMs > 0 {
++			retryConfig.InitialDelay = time.Duration(initialDelayMs) * time.Millisecond
++		}
++		if maxDelayMs := mcp.ParseFloat64(request, "max_delay_ms", 0); maxDelayMs > 0 {
++			retryConfig.MaxDelay = time.Duration(maxDelayMs) * time.Millisecond
++		}
++		if multiplier := mcp.ParseFloat64(request, "multiplier", 0); multiplier > 0 {
++			retryConfig.Multiplier = multiplier
++		}
++		if totalWaitCapMs := mcp.ParseFloat64(request, "total_wait_cap_ms", 0); totalWaitCapMs > 0 {
++			retryConfig.TotalWaitCap = time.Duration(totalWaitCapMs) * time.Millisecond
++		}
++
++		// Parse boolean parameters
++		retryConfig.RespectRetryAfter = mcp.ParseBoolean(request, "respect_retry_after", true)
++		failOnPartial := mcp.ParseBoolean(request, "fail_on_partial", false)
++
++		// Execute with retry
++		cardsData, err := client.GetCardsWithRetry(ctx, filter, retryConfig, failOnPartial)
++		if err != nil {
++			// Return partial results if available
++			if cardsData != nil {
++				cardsJSON, _ := json.Marshal(cardsData)
++				return mcp.NewToolResultError(fmt.Sprintf("Partial failure: %s\n\nPartial data:\n%s", err.Error(), string(cardsJSON))), nil
++			}
++			return mcp.NewToolResultError("Failed to get cards: "+err.Error()), nil
++		}
++
++		cardsJSON, err := json.Marshal(cardsData)
++		if err != nil {
++			return mcp.NewToolResultError("Failed to serialize cards data: "+err.Error()), nil
++		}
++
++		return mcp.NewToolResultText(string(cardsJSON)), nil
++	})
++
+ 	if err := server.ServeStdio(mcpServer); err != nil {
+ 		log.Fatalf("Server error: %v", err)
+ 	}
++}
++
++// parseIntArray parses a comma-separated string of integers into a slice
++func parseIntArray(s string) ([]int, error) {
++	if s == "" {
++		return []int{}, nil
++	}
++
++	parts := strings.Split(s, ",")
++	result := make([]int, 0, len(parts))
++
++	for _, part := range parts {
++		part = strings.TrimSpace(part)
++		if part == "" {
++			continue
++		}
++
++		num, err := strconv.Atoi(part)
++		if err != nil {
++			return nil, fmt.Errorf("invalid integer: %s", part)
++		}
++		result = append(result, num)
++	}
++
++	return result, nil
+ }
+\ No newline at end of file
+diff --git a/rate-limiting-handling.md b/rate-limiting-handling.md
+new file mode 100644
+index 0000000..03cae0e
+--- /dev/null
++++ b/rate-limiting-handling.md
+@@ -0,0 +1,249 @@
++# Rate Limiting Handling Plan (Updated Final Strategy)
++
++## Quick Start
++
++For most use cases, start with these minimal settings:
++
++**Environment (optional, uses defaults if not set):**
++```bash
++KANBANIZE_RETRY_MAX_ATTEMPTS=10        # 10 attempts per endpoint
++KANBANIZE_RETRY_INITIAL_DELAY=5s       # Start with 5s backoff
++KANBANIZE_RETRY_MAX_DELAY=300s         # Cap at 5 minutes
++KANBANIZE_RETRY_TOTAL_CAP=1200s        # Global 20 min timeout
++```
++
++**MCP Tool Call:**
++```json
++{
++  "tool": "read_card_with_retry",
++  "arguments": {
++    "card_id": "12345"
++  }
++}
++```
++
++This uses defaults: full jitter, exponential backoff (2x), Retry-After header respect, partial results enabled.
++
++**For strict mode (fail if any endpoint fails):**
++```json
++{
++  "tool": "read_card_with_retry",
++  "arguments": {
++    "card_id": "12345",
++    "fail_on_partial": true
++  }
++}
++```
++
++## 0. Current State Recap
++
++- `ReadCard` (client.go) performs 3 sequential GETs: card, comments, subtasks.
++- No retry/backoff; HTTP 429 returns generic error.
++- Rate limiting surfaced during bulk descendant fetches (multiple 429 responses).
++
++## 1. Goals
++
++| Goal | Description | Success Metric |
++|------|-------------|----------------|
++| Resilience | Automatically recover from transient 429s | <5% manual re-run rate |
++| Fairness | Avoid hammering API under contention | Jitter prevents synchronized retries |
++| Observability | Clear insight into retry behavior | Logs + counters present |
++| Backward Compatibility | Preserve existing tool semantics | `read_card` unchanged |
++| Partial Usefulness | Deliver partial data (card) even if comments/subtasks fail | Enabled via flag |
++
++## 2. Architecture Overview
++
++```
++internal/kanbanize/
++├── client.go                  (existing basic calls)
++├── retry.go                   (NEW core backoff + helpers)
++├── transport_retry.go         (Phase 3 optional: RoundTripper for global GET retry)
++├── types.go                   (add RateLimitError)
++└── client_test.go             (extend with retry tests)
++
++main.go
++└── register tools: read_card, read_card_with_retry
++```
++
++### New Tool: `read_card_with_retry`
++Parameters:
++| Name | Type | Default | Description |
++|------|------|---------|-------------|
++| card_id | string | required | Root card ID or URL |
++| max_attempts | int | 10 | Upper bound attempts per endpoint |
++| initial_delay_ms | int | 5000 | Initial backoff (ms) |
++| max_delay_ms | int | 300000 | Max single delay (5 min) |
++| multiplier | float | 2.0 | Exponential growth factor |
++| full_jitter | bool | true | Use full jitter (0..delay) |
++| respect_retry_after | bool | true | Honor server header if present |
++| total_wait_cap_ms | int | 1200000 | Global cap (~20 min) |
++| fail_on_partial | bool | false | If true, abort when secondary endpoints fail |
++
++## 3. Composite Fetch Strategy
++
++`ReadCardWithRetry` logic:
++1. Fetch primary card with retry (required).
++2. In parallel (fan-out): fetch comments & subtasks each with independent retry loops sharing a global time budget.
++3. Assemble response; if `fail_on_partial=false`, include `partial_error` map.
++4. Provide attempt counts and cumulative wait time.
++
++## 4. Rate Limit Detection
++
++```go
++type RateLimitError struct {
++    StatusCode  int
++    RetryAfter  time.Duration // parsed from Retry-After header (seconds or HTTP-date)
++    RawBody     string        // original body for diagnostics
++}
++```
++
++Detection:
++- HTTP 429 strictly.
++- Optional future extension: treat specific 503 bodies containing known throttling phrases.
++- Parse headers: `Retry-After`, optionally `X-RateLimit-Reset` (if available).
++
++## 5. Backoff Algorithm (Full Jitter)
++
++Formula per attempt `a`:
++```
++base = min(maxDelay, initialDelay * multiplier^a)
++delay = rand(0, base)   // full jitter
++if Retry-After present and > delay: delay = Retry-After
++```
++Advantages:
++- Reduces synchronized retries more effectively than ±percentage jitter.
++- Simple to reason about.
++
++Global Constraints:
++- Track cumulative waited time; stop if > total_wait_cap_ms.
++- Abort immediately if context canceled.
++
++## 6. Partial Results Semantics
++
++Response Envelope:
++```json
++{
++  "card_id": "24581",
++  "attempts": { "card": 2, "comments": 3, "subtasks": 1 },
++  "wait_seconds": 37.5,
++  "rate_limit_hits": 4,
++  "completed": { "card": true, "comments": true, "subtasks": false },
++  "partial_error": { "subtasks": "max retries exceeded (429)" },
++  "data": { "title": "...", "comments": [..], "subtasks": [] }
++}
++```
++If `fail_on_partial=true`, any secondary failure aborts with final error.
++
++## 7. Circuit Breaker (Phase 3+)
++
++Maintain rolling window of recent 429 timestamps. If >N (e.g. 8) in last minute:
++- Increase initialDelay baseline to e.g. 10s for subsequent calls until window cools down.
++- Prevents persistent hot-looping under global throttling.
++
++## 8. Metrics & Logging
++
++Structured logging (key=value):
++```
++level=info event=rate_retry attempt=3 endpoint=comments delay_ms=10000 reason=429
++level=info event=rate_success attempts=2 endpoint=card total_wait_ms=5200
++level=warn event=rate_partial endpoint=subtasks error="max retries"
++```
++
++Internal counters (in-memory; future Prometheus integration):
++- `retry_attempts_total`
++- `rate_limit_hits_total`
++- `retry_aborts_total`
++- `retry_total_wait_ms`
++
++## 9. Configuration Validation
++
++On load:
++- `MaxAttempts >= 1`
++- `Multiplier >= 1.0`
++- `InitialDelay > 0`, `MaxDelay >= InitialDelay`
++- `total_wait_cap_ms >= InitialDelay`
++- Clamp jitter to full-jitter if `full_jitter=true` ignoring `JitterPercent`.
++
++## 10. Error Handling Matrix
++
++| Scenario | Action |
++|----------|--------|
++| 429 with Retry-After | Honor header exactly (ceil to duration) |
++| 429 without Retry-After | Compute backoff with full jitter |
++| Non-429 error (4xx/5xx) | Fail fast (no retry) |
++| Network timeout | Retry up to 2 attempts (separate light strategy) |
++| Context canceled | Abort immediately, return partial if available |
++| MaxAttempts exceeded | Return error / partial based on flag |
++
++## 11. Testing Plan (Expanded)
++
++| Test | Purpose |
++|------|---------|
++| Parse Retry-After seconds | Correct numeric parsing |
++| Parse Retry-After HTTP-date | Adjust delay to time delta |
++| Full jitter bounds | Ensure 0 <= delay <= base |
++| Multiple 429 then success | Confirms recovery path |
++| Max attempts exceeded | Returns structured error |
++| Partial results enabled | Comments fail, card OK |
++| Partial results disabled | Entire call fails |
++| Context cancellation mid-sleep | Aborts promptly |
++| Circuit breaker escalation | Raises initial delay after spike |
++| Parallel secondary fetch | No race conditions |
++
++## 12. Implementation Phases (Revised)
++
++Phase 1 (Core): retry.go + RateLimitError + `ReadCardWithRetry` (sequential).
++Phase 2 (Composite): parallel comments/subtasks, partial results envelope, tool params.
++Phase 3 (Transport): `RateLimiterTransport` RoundTripper + circuit breaker.
++Phase 4 (Metrics): counters + structured logging refinement.
++Phase 5 (Docs): README section + usage examples.
++
++## 13. Tool Documentation Snippet
++
++`read_card_with_retry` description:
++"Fetches a card and optionally comments/subtasks using exponential full-jitter backoff with respect for Retry-After headers. Returns structured envelope including attempts, wait time, and partial errors when enabled."
++
++## 14. Example Minimal Go Snippets
++
++```go
++func backoff(cfg RetryConfig, attempt int, retryAfter time.Duration) time.Duration {
++    if retryAfter > 0 && cfg.RespectRetryAfter { return retryAfter }
++    base := cfg.InitialDelay
++    if attempt > 0 {
++        base = time.Duration(float64(base) * math.Pow(cfg.Multiplier, float64(attempt)))
++    }
++    if base > cfg.MaxDelay { base = cfg.MaxDelay }
++    // full jitter
++    max := base.Nanoseconds()
++    return time.Duration(rand.Int63n(max + 1))
++}
++```
++
++**Note:** This snippet calculates the delay per attempt. The actual retry loop must also track cumulative wait time and abort if `total_wait_cap_ms` is exceeded, ensuring the global time budget is respected.
++
++## 15. Risks & Mitigations
++
++| Risk | Impact | Mitigation |
++|------|--------|------------|
++| Excessive latency | User frustration | total_wait_cap_ms limit + progress output |
++| Thundering herd | API instability | full jitter + circuit breaker |
++| Partial data misused | Incorrect decisions | Explicit `partial_error` + documentation |
++| Reviewer overload on change | Slowed adoption | Separate tool (opt-in) |
++
++## 16. Open Questions (Tracked)
++
++1. ~~Return progressive streaming updates?~~ **Resolved:** MCP protocol doesn't support streaming responses. Progressive updates will be provided via structured log output (stderr) that clients can monitor.
++2. Include metric export now or later? (Phase 4 target.)
++3. Add per-call override for total_wait_cap_ms? (If needed for long batch ops.)
++
++## 17. Summary
++
++This final plan modernizes rate limit handling with:
++- Dedicated retry tool (`read_card_with_retry`).
++- Full-jitter exponential backoff respecting server hints.
++- Partial result support for improved usability.
++- Future-proof transport layer & circuit breaker.
++- Clear metrics & structured logging path.
++
++Ready to implement Phase 1 immediately; later phases layer on without breaking prior functionality.
++

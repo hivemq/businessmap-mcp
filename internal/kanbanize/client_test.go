@@ -17,6 +17,7 @@
 package kanbanize
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -603,4 +604,220 @@ func TestReadCard_WithNullCustomFields(t *testing.T) {
 	if len(response.CustomFields) != 0 {
 		t.Errorf("Expected CustomFields to be empty, got %v", response.CustomFields)
 	}
+}
+
+func TestGetCardsWithRetry_Success(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v2/cards" {
+			// Check query parameters
+			query := r.URL.Query()
+			if boardIDs := query.Get("board_ids"); boardIDs != "1,2,3" {
+				t.Errorf("Expected board_ids=1,2,3, got %s", boardIDs)
+			}
+
+			// Return raw JSON response matching actual API format
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{
+				"data": {
+					"pagination": {
+						"all_pages": 1,
+						"current_page": 1,
+						"results_per_page": 200
+					},
+					"data": [
+						{
+							"card_id": 101,
+							"title": "Card 1",
+							"description": "Description 1",
+							"board_id": 1,
+							"lane_id": 10,
+							"workflow_id": 100
+						},
+						{
+							"card_id": 102,
+							"title": "Card 2",
+							"description": "Description 2",
+							"board_id": 2,
+							"lane_id": 20,
+							"workflow_id": 200
+						}
+					]
+				}
+			}`))
+		}
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "test-api-key")
+	filter := GetCardsRequest{
+		BoardIDs: []int{1, 2, 3},
+	}
+	cfg := RetryConfig{
+		MaxAttempts:       5,
+		InitialDelay:      100 * time.Millisecond,
+		MaxDelay:          1 * time.Second,
+		Multiplier:        2.0,
+		RespectRetryAfter: true,
+		TotalWaitCap:      10 * time.Second,
+	}
+
+	ctx := context.Background()
+	response, err := client.GetCardsWithRetry(ctx, filter, cfg, false)
+
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+
+	if response.FilterUsed != "board_ids" {
+		t.Errorf("Expected FilterUsed=board_ids, got %s", response.FilterUsed)
+	}
+
+	if len(response.FilterValues) != 3 {
+		t.Errorf("Expected 3 filter values, got %d", len(response.FilterValues))
+	}
+
+	if len(response.Cards) != 2 {
+		t.Fatalf("Expected 2 cards, got %d", len(response.Cards))
+	}
+
+	// Check that both cards are present (order may vary due to map iteration)
+	foundCard101 := false
+	foundCard102 := false
+	for _, card := range response.Cards {
+		if card.CardID == 101 && card.Title == "Card 1" {
+			foundCard101 = true
+		}
+		if card.CardID == 102 && card.Title == "Card 2" {
+			foundCard102 = true
+		}
+	}
+	if !foundCard101 {
+		t.Error("Expected to find card with ID 101 and title 'Card 1'")
+	}
+	if !foundCard102 {
+		t.Error("Expected to find card with ID 102 and title 'Card 2'")
+	}
+
+	if response.Attempts["cards"] != 1 {
+		t.Errorf("Expected 1 attempt, got %d", response.Attempts["cards"])
+	}
+
+	if !response.Completed["cards"] {
+		t.Error("Expected cards to be completed")
+	}
+
+	if response.RateLimitHits != 0 {
+		t.Errorf("Expected 0 rate limit hits, got %d", response.RateLimitHits)
+	}
+}
+
+func TestGetCardsWithRetry_NoFilterProvided(t *testing.T) {
+	client := NewClient("http://example.com", "test-api-key")
+	filter := GetCardsRequest{}
+	cfg := DefaultRetryConfig()
+
+	ctx := context.Background()
+	_, err := client.GetCardsWithRetry(ctx, filter, cfg, false)
+
+	if err == nil {
+		t.Fatal("Expected error when no filter is provided")
+	}
+
+	expectedMsg := "at least one filter parameter"
+	if !contains(err.Error(), expectedMsg) {
+		t.Errorf("Expected error to contain '%s', got %s", expectedMsg, err.Error())
+	}
+}
+
+func TestGetCardsWithRetry_RateLimitThenSuccess(t *testing.T) {
+	attemptCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v2/cards" {
+			attemptCount++
+			if attemptCount == 1 {
+				// First attempt: return rate limit error
+				w.Header().Set("Retry-After", "1")
+				w.WriteHeader(http.StatusTooManyRequests)
+				w.Write([]byte(`{"error": "rate limit exceeded"}`))
+				return
+			}
+			// Second attempt: success
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{
+				"data": {
+					"pagination": {
+						"all_pages": 1,
+						"current_page": 1,
+						"results_per_page": 200
+					},
+					"data": [
+						{
+							"card_id": 201,
+							"title": "Card After Retry",
+							"description": "Success",
+							"board_id": 5,
+							"lane_id": 50,
+							"workflow_id": 500
+						}
+					]
+				}
+			}`))
+		}
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "test-api-key")
+	filter := GetCardsRequest{
+		LaneIDs: []int{50, 51},
+	}
+	cfg := RetryConfig{
+		MaxAttempts:       5,
+		InitialDelay:      100 * time.Millisecond,
+		MaxDelay:          1 * time.Second,
+		Multiplier:        2.0,
+		RespectRetryAfter: true,
+		TotalWaitCap:      10 * time.Second,
+	}
+
+	ctx := context.Background()
+	response, err := client.GetCardsWithRetry(ctx, filter, cfg, false)
+
+	if err != nil {
+		t.Fatalf("Expected no error after retry, got %v", err)
+	}
+
+	if response.FilterUsed != "lane_ids" {
+		t.Errorf("Expected FilterUsed=lane_ids, got %s", response.FilterUsed)
+	}
+
+	if response.Attempts["cards"] != 2 {
+		t.Errorf("Expected 2 attempts, got %d", response.Attempts["cards"])
+	}
+
+	if response.RateLimitHits != 1 {
+		t.Errorf("Expected 1 rate limit hit, got %d", response.RateLimitHits)
+	}
+
+	if len(response.Cards) != 1 {
+		t.Fatalf("Expected 1 card, got %d", len(response.Cards))
+	}
+
+	if response.Cards[0].CardID != 201 {
+		t.Errorf("Expected card ID to be 201, got %d", response.Cards[0].CardID)
+	}
+}
+
+// Helper function for string contains
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(substr) == 0 ||
+		(len(s) > 0 && len(substr) > 0 && stringContains(s, substr)))
+}
+
+func stringContains(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
 }

@@ -165,3 +165,54 @@ type ReadCardWithRetryResponse struct {
 	PartialError   map[string]string         `json:"partial_error,omitempty"`
 	Data           *ReadCardResponse         `json:"data"`
 }
+
+// GetCardsRequest represents query parameters for filtering multiple cards
+type GetCardsRequest struct {
+	BoardIDs    []int `json:"board_ids,omitempty"`
+	LaneIDs     []int `json:"lane_ids,omitempty"`
+	WorkflowIDs []int `json:"workflow_ids,omitempty"`
+	CardIDs     []int `json:"card_ids,omitempty"`
+}
+
+// CardSummary represents a summary of card data (lighter than ReadCardResponse)
+type CardSummary struct {
+	CardID       int           `json:"card_id"`
+	Title        string        `json:"title"`
+	Description  string        `json:"description"`
+	BoardID      int           `json:"board_id"`
+	LaneID       int           `json:"lane_id"`
+	WorkflowID   int           `json:"workflow_id"`
+	CustomFields []CustomField `json:"custom_fields,omitempty"`
+	LinkedCards  []LinkedCard  `json:"linked_cards,omitempty"`
+}
+
+// GetCardsResponse represents the API response for querying multiple cards
+// The API returns data with nested structure: data.pagination and data.data
+type GetCardsResponse struct {
+	Data GetCardsDataWrapper `json:"data"`
+}
+
+// GetCardsDataWrapper contains pagination info and the actual cards array
+type GetCardsDataWrapper struct {
+	Pagination GetCardsPagination `json:"pagination"`
+	Data       []CardSummary      `json:"data"`
+}
+
+// GetCardsPagination contains pagination information for the cards response
+type GetCardsPagination struct {
+	AllPages       int `json:"all_pages"`
+	CurrentPage    int `json:"current_page"`
+	ResultsPerPage int `json:"results_per_page"`
+}
+
+// GetCardsWithRetryResponse wraps the cards data with retry metadata
+type GetCardsWithRetryResponse struct {
+	FilterUsed    string            `json:"filter_used"`
+	FilterValues  []int             `json:"filter_values"`
+	Attempts      map[string]int    `json:"attempts"`
+	WaitSeconds   float64           `json:"wait_seconds"`
+	RateLimitHits int               `json:"rate_limit_hits"`
+	Completed     map[string]bool   `json:"completed"`
+	PartialError  map[string]string `json:"partial_error,omitempty"`
+	Cards         []CardSummary     `json:"cards"`
+}
