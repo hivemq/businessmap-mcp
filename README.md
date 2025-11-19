@@ -8,8 +8,10 @@ A Go-based Model Context Protocol (MCP) server that provides comprehensive acces
 
 ## Features
 
-- **🎯 Two MCP Tools**:
+- **🎯 Four MCP Tools**:
   - `read_card` - Comprehensive card information retrieval
+  - `read_card_with_retry` - Card retrieval with exponential backoff retry for rate limiting
+  - `get_cards_with_retry` - Query multiple cards by board/lane/workflow/card IDs with retry
   - `add_card_comment` - Add comments to existing cards
 - **📊 Structured Data**: Returns clean JSON with title, description, subtasks, comments, custom fields, linked cards, and timestamps
 - **✍️ Card Interaction**: Add comments to cards directly through the API
@@ -214,11 +216,23 @@ Please add a comment "Task completed" to https://yourcompany.kanbanize.com/ctrl_
 Please add a comment "Task completed" to https://yourcompany.kanbanize.com/ctrl_board/123/cards/12345/comments/
 ```
 
-Claude will automatically use the MCP server to fetch comprehensive card information or add comments as requested.
+**Querying multiple cards by board**:
+```
+Please get all cards from board 41
+Please fetch cards from boards 1, 2, and 3
+```
+
+**Querying cards by lane or workflow**:
+```
+Please get all cards in lane 394
+Please fetch cards from workflow 271
+```
+
+Claude will automatically use the MCP server to fetch comprehensive card information, query multiple cards, or add comments as requested.
 
 ## Usage
 
-The MCP server communicates via stdin/stdout using the JSON-RPC protocol. It provides two tools:
+The MCP server communicates via stdin/stdout using the JSON-RPC protocol. It provides four tools:
 
 ### `read_card`
 
@@ -286,15 +300,87 @@ The MCP server communicates via stdin/stdout using the JSON-RPC protocol. It pro
 }
 ```
 
+### `read_card_with_retry`
+
+**Description**: Read comprehensive card information with exponential backoff retry logic for handling rate limits
+
+**Parameters**:
+- `card_id` (string, required): The ID of the Kanbanize card to read or full card URL
+- `max_attempts` (number, optional): Upper bound attempts per endpoint (default: 10)
+- `initial_delay_ms` (number, optional): Initial backoff in milliseconds (default: 5000)
+- `max_delay_ms` (number, optional): Max single delay in milliseconds (default: 300000 = 5 min)
+- `multiplier` (number, optional): Exponential growth factor (default: 2.0)
+- `respect_retry_after` (boolean, optional): Honor server Retry-After header (default: true)
+- `total_wait_cap_ms` (number, optional): Global time cap in milliseconds (default: 1200000 = 20 min)
+- `fail_on_partial` (boolean, optional): Abort when secondary endpoints fail (default: false)
+
+**Example Response**:
+```json
+{
+  "card_id": "12345",
+  "attempts": {"card": 2, "comments": 1, "subtasks": 1},
+  "wait_seconds": 5.2,
+  "rate_limit_hits": 1,
+  "completed": {"card": true, "comments": true, "subtasks": true},
+  "data": {
+    "title": "Card Title",
+    "description": "Card description",
+    "subtasks": [...],
+    "comments": [...]
+  }
+}
+```
+
+### `get_cards_with_retry`
+
+**Description**: Query multiple cards using filter criteria with exponential backoff retry logic
+
+**Parameters**:
+- `board_ids` (string, optional): Comma-separated board IDs to filter by (e.g., "1,2,3")
+- `lane_ids` (string, optional): Comma-separated lane IDs to filter by (e.g., "4,5,6")
+- `workflow_ids` (string, optional): Comma-separated workflow IDs to filter by (e.g., "7,8,9")
+- `card_ids` (string, optional): Comma-separated card IDs to filter by (e.g., "10,11,12")
+- `max_attempts` (number, optional): Upper bound attempts (default: 10)
+- `initial_delay_ms` (number, optional): Initial backoff in milliseconds (default: 5000)
+- `max_delay_ms` (number, optional): Max single delay in milliseconds (default: 300000)
+- `multiplier` (number, optional): Exponential growth factor (default: 2.0)
+- `respect_retry_after` (boolean, optional): Honor server Retry-After header (default: true)
+- `total_wait_cap_ms` (number, optional): Global time cap in milliseconds (default: 1200000)
+- `fail_on_partial` (boolean, optional): Abort on failure (default: false)
+
+**Note**: At least one filter parameter (board_ids, lane_ids, workflow_ids, or card_ids) must be provided.
+
+**Example Response**:
+```json
+{
+  "filter_used": "board_ids",
+  "filter_values": [1, 2, 3],
+  "attempts": {"cards": 1},
+  "wait_seconds": 0.5,
+  "rate_limit_hits": 0,
+  "completed": {"cards": true},
+  "cards": [
+    {
+      "card_id": 12345,
+      "title": "Card Title",
+      "description": "Description",
+      "board_id": 1,
+      "lane_id": 10,
+      "workflow_id": 100
+    }
+  ]
+}
+```
+
 ### `add_card_comment`
 
 **Description**: Add a comment to a card
 
 **Parameters**:
-- `card_id` (string, required): The ID of the Kanbanize card to add comment to or full card URL  
+- `card_id` (string, required): The ID of the Kanbanize card to add comment to or full card URL
 - `comment_text` (string, required): The text of the comment to add
 
-**Example Response**: 
+**Example Response**:
 ```json
 "Comment added successfully"
 ```
@@ -425,6 +511,7 @@ The server uses the official Businessmap API v2 endpoints:
 
 **Endpoints**:
 ```bash
+GET  {KANBANIZE_BASE_URL}/api/v2/cards                        # Query multiple cards
 GET  {KANBANIZE_BASE_URL}/api/v2/cards/{card_id}              # Card details
 GET  {KANBANIZE_BASE_URL}/api/v2/cards/{card_id}/comments     # Comments
 GET  {KANBANIZE_BASE_URL}/api/v2/cards/{card_id}/subtasks     # Subtasks

@@ -18,6 +18,7 @@ package kanbanize
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -252,6 +253,106 @@ func (c *Client) getCardSubtasks(cardID string) ([]Subtask, error) {
 
 func (c *Client) makeAPIRequest(url string) ([]byte, error) {
 	return c.makeAPIRequestWithBody("GET", url, nil)
+}
+
+// GetCardsWithRetry queries multiple cards with retry logic for rate limiting
+// It returns a structured response with metadata about retry attempts
+func (c *Client) GetCardsWithRetry(ctx context.Context, filter GetCardsRequest, cfg RetryConfig, failOnPartial bool) (*GetCardsWithRetryResponse, error) {
+	// Validate at least one filter is provided
+	if len(filter.BoardIDs) == 0 && len(filter.LaneIDs) == 0 &&
+		len(filter.WorkflowIDs) == 0 && len(filter.CardIDs) == 0 {
+		return nil, fmt.Errorf("at least one filter parameter (board_ids, lane_ids, workflow_ids, or card_ids) must be provided")
+	}
+
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid retry config: %w", err)
+	}
+
+	startTime := time.Now()
+	response := &GetCardsWithRetryResponse{
+		Attempts:     make(map[string]int),
+		Completed:    make(map[string]bool),
+		PartialError: make(map[string]string),
+		Cards:        []CardSummary{},
+	}
+
+	// Determine which filter is being used
+	if len(filter.BoardIDs) > 0 {
+		response.FilterUsed = "board_ids"
+		response.FilterValues = filter.BoardIDs
+	} else if len(filter.LaneIDs) > 0 {
+		response.FilterUsed = "lane_ids"
+		response.FilterValues = filter.LaneIDs
+	} else if len(filter.WorkflowIDs) > 0 {
+		response.FilterUsed = "workflow_ids"
+		response.FilterValues = filter.WorkflowIDs
+	} else if len(filter.CardIDs) > 0 {
+		response.FilterUsed = "card_ids"
+		response.FilterValues = filter.CardIDs
+	}
+
+	// Build the URL with query parameters
+	url := fmt.Sprintf("%s/api/v2/cards", c.baseURL)
+	queryParams := []string{}
+
+	if len(filter.BoardIDs) > 0 {
+		boardIDs := make([]string, len(filter.BoardIDs))
+		for i, id := range filter.BoardIDs {
+			boardIDs[i] = strconv.Itoa(id)
+		}
+		queryParams = append(queryParams, "board_ids="+strings.Join(boardIDs, ","))
+	}
+
+	if len(filter.LaneIDs) > 0 {
+		laneIDs := make([]string, len(filter.LaneIDs))
+		for i, id := range filter.LaneIDs {
+			laneIDs[i] = strconv.Itoa(id)
+		}
+		queryParams = append(queryParams, "lane_ids="+strings.Join(laneIDs, ","))
+	}
+
+	if len(filter.WorkflowIDs) > 0 {
+		workflowIDs := make([]string, len(filter.WorkflowIDs))
+		for i, id := range filter.WorkflowIDs {
+			workflowIDs[i] = strconv.Itoa(id)
+		}
+		queryParams = append(queryParams, "workflow_ids="+strings.Join(workflowIDs, ","))
+	}
+
+	if len(filter.CardIDs) > 0 {
+		cardIDs := make([]string, len(filter.CardIDs))
+		for i, id := range filter.CardIDs {
+			cardIDs[i] = strconv.Itoa(id)
+		}
+		queryParams = append(queryParams, "card_ids="+strings.Join(cardIDs, ","))
+	}
+
+	if len(queryParams) > 0 {
+		url += "?" + strings.Join(queryParams, "&")
+	}
+
+	// Fetch cards with retry
+	cardsResult := c.fetchWithRetry(ctx, cfg, "cards", url)
+	response.Attempts["cards"] = cardsResult.attempts
+	response.RateLimitHits = cardsResult.rateLimitHits
+	response.Completed["cards"] = cardsResult.success
+
+	if !cardsResult.success {
+		response.PartialError["cards"] = cardsResult.err.Error()
+		response.WaitSeconds = time.Since(startTime).Seconds()
+		return response, fmt.Errorf("failed to fetch cards: %w", cardsResult.err)
+	}
+
+	// Parse cards data - the API returns nested structure: data.pagination and data.data
+	var cardsResp GetCardsResponse
+	if err := json.Unmarshal(cardsResult.data, &cardsResp); err != nil {
+		// Include raw data in error for debugging
+		return response, fmt.Errorf("failed to parse cards data: %w (raw: %s)", err, string(cardsResult.data))
+	}
+
+	response.Cards = cardsResp.Data.Data
+	response.WaitSeconds = time.Since(startTime).Seconds()
+	return response, nil
 }
 
 func (c *Client) makeAPIRequestWithBody(method, url string, body interface{}) ([]byte, error) {

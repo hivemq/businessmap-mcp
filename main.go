@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -205,7 +206,158 @@ func main() {
 		return mcp.NewToolResultText(string(cardJSON)), nil
 	})
 
+	getCardsWithRetryTool := mcp.NewTool("get_cards_with_retry",
+		mcp.WithDescription("Query multiple cards using filter criteria with exponential backoff retry logic. Returns cards matching the specified filters (board_ids, lane_ids, workflow_ids, or card_ids)."),
+		mcp.WithString("board_ids",
+			mcp.Description("Comma-separated board IDs to filter by (e.g., \"1,2,3\")"),
+		),
+		mcp.WithString("lane_ids",
+			mcp.Description("Comma-separated lane IDs to filter by (e.g., \"4,5,6\")"),
+		),
+		mcp.WithString("workflow_ids",
+			mcp.Description("Comma-separated workflow IDs to filter by (e.g., \"7,8,9\")"),
+		),
+		mcp.WithString("card_ids",
+			mcp.Description("Comma-separated card IDs to filter by (e.g., \"10,11,12\")"),
+		),
+		mcp.WithNumber("max_attempts",
+			mcp.Description("Upper bound attempts per endpoint (default: 10)"),
+		),
+		mcp.WithNumber("initial_delay_ms",
+			mcp.Description("Initial backoff in milliseconds (default: 5000)"),
+		),
+		mcp.WithNumber("max_delay_ms",
+			mcp.Description("Max single delay in milliseconds (default: 300000 = 5 min)"),
+		),
+		mcp.WithNumber("multiplier",
+			mcp.Description("Exponential growth factor (default: 2.0)"),
+		),
+		mcp.WithBoolean("respect_retry_after",
+			mcp.Description("Honor server Retry-After header if present (default: true)"),
+		),
+		mcp.WithNumber("total_wait_cap_ms",
+			mcp.Description("Global time cap in milliseconds (default: 1200000 = 20 min)"),
+		),
+		mcp.WithBoolean("fail_on_partial",
+			mcp.Description("If true, abort when secondary endpoints fail (default: false)"),
+		),
+	)
+
+	mcpServer.AddTool(getCardsWithRetryTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		// Parse filter parameters
+		filter := kanbanize.GetCardsRequest{}
+
+		boardIDsStr := mcp.ParseString(request, "board_ids", "")
+		if boardIDsStr != "" {
+			ids, err := parseIntArray(boardIDsStr)
+			if err != nil {
+				return mcp.NewToolResultError("Invalid board_ids format: " + err.Error()), nil
+			}
+			filter.BoardIDs = ids
+		}
+
+		laneIDsStr := mcp.ParseString(request, "lane_ids", "")
+		if laneIDsStr != "" {
+			ids, err := parseIntArray(laneIDsStr)
+			if err != nil {
+				return mcp.NewToolResultError("Invalid lane_ids format: " + err.Error()), nil
+			}
+			filter.LaneIDs = ids
+		}
+
+		workflowIDsStr := mcp.ParseString(request, "workflow_ids", "")
+		if workflowIDsStr != "" {
+			ids, err := parseIntArray(workflowIDsStr)
+			if err != nil {
+				return mcp.NewToolResultError("Invalid workflow_ids format: " + err.Error()), nil
+			}
+			filter.WorkflowIDs = ids
+		}
+
+		cardIDsStr := mcp.ParseString(request, "card_ids", "")
+		if cardIDsStr != "" {
+			ids, err := parseIntArray(cardIDsStr)
+			if err != nil {
+				return mcp.NewToolResultError("Invalid card_ids format: " + err.Error()), nil
+			}
+			filter.CardIDs = ids
+		}
+
+		// Validate at least one filter is provided
+		if len(filter.BoardIDs) == 0 && len(filter.LaneIDs) == 0 &&
+		   len(filter.WorkflowIDs) == 0 && len(filter.CardIDs) == 0 {
+			return mcp.NewToolResultError("At least one filter parameter (board_ids, lane_ids, workflow_ids, or card_ids) must be provided"), nil
+		}
+
+		// Build retry config with defaults
+		retryConfig := kanbanize.DefaultRetryConfig()
+
+		// Override with provided parameters
+		if maxAttempts := mcp.ParseFloat64(request, "max_attempts", 0); maxAttempts > 0 {
+			retryConfig.MaxAttempts = int(maxAttempts)
+		}
+		if initialDelayMs := mcp.ParseFloat64(request, "initial_delay_ms", 0); initialDelayMs > 0 {
+			retryConfig.InitialDelay = time.Duration(initialDelayMs) * time.Millisecond
+		}
+		if maxDelayMs := mcp.ParseFloat64(request, "max_delay_ms", 0); maxDelayMs > 0 {
+			retryConfig.MaxDelay = time.Duration(maxDelayMs) * time.Millisecond
+		}
+		if multiplier := mcp.ParseFloat64(request, "multiplier", 0); multiplier > 0 {
+			retryConfig.Multiplier = multiplier
+		}
+		if totalWaitCapMs := mcp.ParseFloat64(request, "total_wait_cap_ms", 0); totalWaitCapMs > 0 {
+			retryConfig.TotalWaitCap = time.Duration(totalWaitCapMs) * time.Millisecond
+		}
+
+		// Parse boolean parameters
+		retryConfig.RespectRetryAfter = mcp.ParseBoolean(request, "respect_retry_after", true)
+		failOnPartial := mcp.ParseBoolean(request, "fail_on_partial", false)
+
+		// Execute with retry
+		cardsData, err := client.GetCardsWithRetry(ctx, filter, retryConfig, failOnPartial)
+		if err != nil {
+			// Return partial results if available
+			if cardsData != nil {
+				cardsJSON, _ := json.Marshal(cardsData)
+				return mcp.NewToolResultError(fmt.Sprintf("Partial failure: %s\n\nPartial data:\n%s", err.Error(), string(cardsJSON))), nil
+			}
+			return mcp.NewToolResultError("Failed to get cards: "+err.Error()), nil
+		}
+
+		cardsJSON, err := json.Marshal(cardsData)
+		if err != nil {
+			return mcp.NewToolResultError("Failed to serialize cards data: "+err.Error()), nil
+		}
+
+		return mcp.NewToolResultText(string(cardsJSON)), nil
+	})
+
 	if err := server.ServeStdio(mcpServer); err != nil {
 		log.Fatalf("Server error: %v", err)
 	}
+}
+
+// parseIntArray parses a comma-separated string of integers into a slice
+func parseIntArray(s string) ([]int, error) {
+	if s == "" {
+		return []int{}, nil
+	}
+
+	parts := strings.Split(s, ",")
+	result := make([]int, 0, len(parts))
+
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+
+		num, err := strconv.Atoi(part)
+		if err != nil {
+			return nil, fmt.Errorf("invalid integer: %s", part)
+		}
+		result = append(result, num)
+	}
+
+	return result, nil
 }
